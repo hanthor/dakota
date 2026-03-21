@@ -5,8 +5,8 @@ build-depends:
 
 sources:
   - kind: zip
-    url: onepassword_cli:v2.32.1/op_linux_arm64_v2.32.1.zip
-    ref: cf6d114b12079ba5ac4f3ea6c69d331c06565c361aeae77f8c20868bd94c9885
+    url: onepassword_cli:v2.33.0/op_linux_arm64_v2.33.0.zip
+    ref: 1d3862246186953b6d0585d17a9b5bbf5c89f2b000d21b32a4a9442ef1493c99
     base-dir: ""
 
 variables:

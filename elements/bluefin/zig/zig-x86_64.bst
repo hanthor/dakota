@@ -4,5 +4,5 @@ kind: manual
 
 sources:
   - kind: tar
-    url: ziglang:download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
-    ref: 24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c
+    url: ziglang:download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz
+    ref: 02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239

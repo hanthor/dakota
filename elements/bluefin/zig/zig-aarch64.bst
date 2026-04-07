@@ -4,5 +4,5 @@ kind: manual
 
 sources:
   - kind: tar
-    url: ziglang:download/0.14.1/zig-aarch64-linux-0.14.1.tar.xz
-    ref: f7a654acc967864f7a050ddacfaa778c7504a0eca8d2b678839c21eea47c992b
+    url: ziglang:download/0.15.2/zig-aarch64-linux-0.15.2.tar.xz
+    ref: 958ed7d1e00d0ea76590d27666efbf7a932281b3d7ba0c6b01b0ff26498f667f

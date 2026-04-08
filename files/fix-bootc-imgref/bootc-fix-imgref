@@ -1,0 +1,78 @@
+#!/bin/bash
+# bootc-fix-imgref: correct a broken bootc image reference stored with a
+# spurious docker:// transport prefix, caused by tuna-installer versions
+# prior to the processor.py fix in tuna-os/tuna-installer.
+#
+# Root cause: tuna-installer processor.py line 127 builds
+#   targetImgref = f"docker://{image}"
+# then fisherman passes that verbatim as:
+#   bootc install --target-imgref docker://ghcr.io/…
+# bootc stores this in the deployment's .origin file as:
+#   container-image-reference = ostree-unverified-image:docker://docker://ghcr.io/…
+# causing `bootc update` to fail with "invalid reference format".
+#
+# This script locates the booted deployment's .origin file and strips
+# the duplicate docker:// prefix in-place. It is idempotent and writes
+# a stamp file so it only runs once per installation.
+#
+# See also: https://github.com/tuna-os/tuna-installer (the upstream fix)
+
+set -euo pipefail
+
+STAMP="/var/lib/bootc-imgref-fixed"
+
+if [[ -f "$STAMP" ]]; then
+    echo "bootc-fix-imgref: already applied (stamp exists), skipping"
+    exit 0
+fi
+
+# Identify the booted deployment verity hash from bootc status.
+BOOT_VERITY=$(bootc status --format json 2>/dev/null \
+    | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+v = (d.get('status', {})
+      .get('booted', {})
+      .get('composefs', {})
+      .get('verity', ''))
+print(v)
+" 2>/dev/null || echo "")
+
+if [[ -z "$BOOT_VERITY" ]]; then
+    echo "bootc-fix-imgref: could not determine booted verity hash, skipping"
+    exit 0
+fi
+
+DEPLOY_DIR="/sysroot/state/deploy/${BOOT_VERITY}"
+ORIGIN_FILE="${DEPLOY_DIR}/${BOOT_VERITY}.origin"
+
+if [[ ! -f "$ORIGIN_FILE" ]]; then
+    echo "bootc-fix-imgref: origin file not found at $ORIGIN_FILE, skipping"
+    touch "$STAMP"
+    exit 0
+fi
+
+CURRENT=$(grep '^container-image-reference' "$ORIGIN_FILE" || true)
+
+if [[ "$CURRENT" != *"docker://docker://"* ]]; then
+    echo "bootc-fix-imgref: imgref is correct, nothing to do"
+    echo "  $CURRENT"
+    touch "$STAMP"
+    exit 0
+fi
+
+echo "bootc-fix-imgref: detected double docker:// prefix, fixing..."
+echo "  before: $CURRENT"
+
+# /sysroot is mounted read-only by default; remount writable just long
+# enough to patch the file, then restore.
+mount -o remount,rw /sysroot
+sed -i 's|ostree-unverified-image:docker://docker://|ostree-unverified-image:docker://|g' \
+    "$ORIGIN_FILE"
+mount -o remount,ro /sysroot 2>/dev/null || true   # best-effort; may be busy
+
+FIXED=$(grep '^container-image-reference' "$ORIGIN_FILE" || true)
+echo "  after:  $FIXED"
+echo "bootc-fix-imgref: done — run 'bootc update' to fetch any pending updates"
+
+touch "$STAMP"

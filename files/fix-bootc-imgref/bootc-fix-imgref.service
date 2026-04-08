@@ -1,0 +1,17 @@
+[Unit]
+Description=Fix bootc image reference corrupted by double docker:// prefix
+Documentation=https://github.com/projectbluefin/dakota/issues
+# Run before any bootc-related services so that subsequent update checks
+# use the corrected reference.  No network needed — we edit the local
+# .origin file directly.
+Before=bootc-fetch-apply-updates.timer
+ConditionPathExists=!/var/lib/bootc-imgref-fixed
+
+[Service]
+Type=oneshot
+# Needs access to /sysroot to find and patch the deployment origin file.
+ExecStart=/usr/libexec/bootc-fix-imgref
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

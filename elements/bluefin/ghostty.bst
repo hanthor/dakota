@@ -4,7 +4,7 @@ variables:
   strip-binaries: ""
 
 build-depends:
-  - bluefin/zig/zig.bst
+  - bluefin/zig.bst
   - freedesktop-sdk.bst:components/tar.bst
   - freedesktop-sdk.bst:components/gzip.bst
   - freedesktop-sdk.bst:components/gettext.bst

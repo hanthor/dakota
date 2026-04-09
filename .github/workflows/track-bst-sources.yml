@@ -167,18 +167,16 @@ jobs:
             --jq '[.[] | select(.tag_name | startswith("homebrew-"))][0].tag_name')
           echo "Latest brew release: $BREW_RELEASE"
 
-          BST_FILE_X86="elements/bluefin/brew-tarball/brew-tarball-x86_64.bst"
-          BST_FILE_ARM="elements/bluefin/brew-tarball/brew-tarball-aarch64.bst"
-          CURRENT_TAG=$(grep -oP 'download/\K[^/]+' "$BST_FILE_X86")
+          BST_FILE="elements/bluefin/brew-tarball.bst"
+          CURRENT_TAG=$(grep -oP 'download/\K[^/]+' "$BST_FILE" | head -1)
           echo "Current tag: $CURRENT_TAG"
 
           if [ "$BREW_RELEASE" != "$CURRENT_TAG" ]; then
             echo "Brew tarball needs update: $CURRENT_TAG -> $BREW_RELEASE"
-            sed -i "s|download/${CURRENT_TAG}/|download/${BREW_RELEASE}/|" "$BST_FILE_X86"
-            sed -i "s|download/${CURRENT_TAG}/|download/${BREW_RELEASE}/|" "$BST_FILE_ARM"
+            sed -i "s|download/${CURRENT_TAG}/|download/${BREW_RELEASE}/|g" "$BST_FILE"
 
-            just bst -o arch x86_64 source track bluefin/brew-tarball/brew-tarball-x86_64.bst
-            just bst -o arch aarch64 source track bluefin/brew-tarball/brew-tarball-aarch64.bst
+            just bst -o arch x86_64 source track bluefin/brew-tarball.bst
+            just bst -o arch aarch64 source track bluefin/brew-tarball.bst
           fi
 
           # ── wallpapers: ublue-os/artwork bluefin releases ──
@@ -209,17 +207,15 @@ jobs:
           echo "Latest CLI version: $CLI_VERSION"
 
 
-          CURRENT_CLI_VERSION=$(grep -oP 'v\K[0-9.]+(?=/)' elements/bluefin/1password-cli/1password-cli-x86_64.bst | head -1)
+          CURRENT_CLI_VERSION=$(grep -oP 'v\K[0-9.]+(?=/)' elements/bluefin/1password-cli.bst | head -1)
           echo "Current CLI version: $CURRENT_CLI_VERSION"
 
           if [ -n "$CLI_VERSION" ] && [ "$CLI_VERSION" != "$CURRENT_CLI_VERSION" ]; then
             echo "CLI needs update: $CURRENT_CLI_VERSION -> $CLI_VERSION"
-            sed -i "s|v${CURRENT_CLI_VERSION}|v${CLI_VERSION}|g" elements/bluefin/1password-cli/1password-cli-x86_64.bst
-            sed -i "s|v${CURRENT_CLI_VERSION}|v${CLI_VERSION}|g" elements/bluefin/1password-cli/1password-cli-aarch64.bst
+            sed -i "s|v${CURRENT_CLI_VERSION}|v${CLI_VERSION}|g" elements/bluefin/1password-cli.bst
 
-            just bst -o arch x86_64 source track bluefin/1password-cli/1password-cli-x86_64.bst
-            just bst -o arch aarch64 source track bluefin/1password-cli/1password-cli-aarch64.bst
-
+            just bst -o arch x86_64 source track bluefin/1password-cli.bst
+            just bst -o arch aarch64 source track bluefin/1password-cli.bst
           fi
 
 
@@ -229,16 +225,16 @@ jobs:
           DESKTOP_VERSION=$(echo "$ONEPASSWORD_PACKAGES" | grep -A10 "^Package: 1password$" | grep "^Version:" | head -1 | awk '{print $2}')
           echo "Latest desktop version: $DESKTOP_VERSION"
 
-          CURRENT_DESKTOP_VERSION=$(grep -oP '1password-\K[0-9.]+(?=\.x64)' elements/bluefin/1password/1password-x86_64.bst | head -1)
+          CURRENT_DESKTOP_VERSION=$(grep -oP '1password-\K[0-9.]+(?=\.x64)' elements/bluefin/1password.bst | head -1)
           echo "Current desktop version: $CURRENT_DESKTOP_VERSION"
 
           if [ -n "$DESKTOP_VERSION" ] && [ "$DESKTOP_VERSION" != "$CURRENT_DESKTOP_VERSION" ]; then
             echo "Desktop needs update: $CURRENT_DESKTOP_VERSION -> $DESKTOP_VERSION"
-            sed -i "s|1password-${CURRENT_DESKTOP_VERSION}\.x64|1password-${DESKTOP_VERSION}.x64|g" elements/bluefin/1password/1password-x86_64.bst
-            sed -i "s|1password-${CURRENT_DESKTOP_VERSION}\.arm64|1password-${DESKTOP_VERSION}.arm64|g" elements/bluefin/1password/1password-aarch64.bst
+            sed -i "s|1password-${CURRENT_DESKTOP_VERSION}\.x64|1password-${DESKTOP_VERSION}.x64|g" elements/bluefin/1password.bst
+            sed -i "s|1password-${CURRENT_DESKTOP_VERSION}\.arm64|1password-${DESKTOP_VERSION}.arm64|g" elements/bluefin/1password.bst
 
-            just bst -o arch x86_64 source track bluefin/1password/1password-x86_64.bst
-            just bst -o arch aarch64 source track bluefin/1password/1password-aarch64.bst
+            just bst -o arch x86_64 source track bluefin/1password.bst
+            just bst -o arch aarch64 source track bluefin/1password.bst
           fi
 
           if git diff --quiet; then

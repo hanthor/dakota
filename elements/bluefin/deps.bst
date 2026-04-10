@@ -6,18 +6,18 @@ depends:
   - bluefin/gnome-shell-extensions.bst
 
   - bluefin/brew.bst
-  - bluefin/brew-tarball/brew-tarball.bst
+  - bluefin/brew-tarball.bst
 
-  - bluefin/tailscale/tailscale.bst
+  - bluefin/tailscale.bst
 
-  - bluefin/1password-cli/1password-cli.bst
-  - bluefin/1password/1password.bst
+  - bluefin/1password-cli.bst
+  - bluefin/1password.bst
 
   - bluefin/ghostty.bst
 
-  - bluefin/glow/glow.bst
-  - bluefin/gum/gum.bst
-  - bluefin/fzf/fzf.bst
+  - bluefin/glow.bst
+  - bluefin/gum.bst
+  - bluefin/fzf.bst
 
   - bluefin/common.bst
   - bluefin/wallpapers.bst

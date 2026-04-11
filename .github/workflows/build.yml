@@ -88,8 +88,8 @@ jobs:
             message-format: '[%{wallclock}][%{elapsed}][%{key}][%{element}] %{action} %{message}'
             error-lines: 80
 
-          cachedir: /srv/cache
-          logdir: /srv/logs
+          cachedir: /root/.cache/buildstream
+          logdir: /src/logs
 
           build:
             retry-failed: True
@@ -173,7 +173,7 @@ jobs:
           BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf
         run: |
           just bst build oci/bluefin.bst
-        timeout-minutes: 120
+        timeout-minutes: 300
 
       # ── Export OCI image ──────────────────────────────────────────────
       # Uses the Justfile's `export` recipe: checks out the OCI image

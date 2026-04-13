@@ -26,6 +26,7 @@ depends:
   - bluefin/uutils-coreutils.bst
   - bluefin/sudo-rs.bst
   - bluefin/efibootmgr.bst
+  - bluefin/xdg-terminal-exec.bst
 
   # Include things missing from the gnomeos base image
   - freedesktop-sdk.bst:components/buildstream2.bst

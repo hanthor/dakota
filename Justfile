@@ -109,7 +109,7 @@ export:
     $SUDO_CMD podman images | grep -E "{{image_name}}|REPOSITORY" || true
 
     # Step: Chunkify (reorganize layers)
-    # just chunkify "{{image_name}}:{{image_tag}}"
+    just chunkify "{{image_name}}:{{image_tag}}"
 
 # ── Clean ─────────────────────────────────────────────────────────────
 # Remove generated artifacts (disk image, OVMF vars, build output).
@@ -451,7 +451,8 @@ show-me-the-future:
     fi
 
 # ── Chunkah ──────────────────────────────────────────────────────────
-# Use the pre-built chunkah image from quay.io
+# Re-layer the image using chunkah (content-based layer splitting).
+# https://github.com/coreos/chunkah
 chunkify image_ref:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -463,29 +464,39 @@ chunkify image_ref:
     fi
 
     echo "==> Chunkifying {{image_ref}}..."
-    
-    # Get config from existing image
+
+    # Preserve OCI config (labels, entrypoint, env) from the source image.
+    # podman inspect output is accepted by chunkah as CHUNKAH_CONFIG_STR.
     CONFIG=$($SUDO_CMD podman inspect "{{image_ref}}")
-    
-    # Run chunkah (default 64 layers) and pipe to podman load
-    # Uses --mount=type=image to expose the source image content to chunkah
-    # Note: We need --privileged for some podman-in-podman/mount scenarios or just standard access
+
+    # Run chunkah via image mount and pipe directly to podman load.
+    #
+    # --mount=type=image: exposes the image rootfs at /chunkah inside the
+    #   chunkah container without an extra copy (valid option names: dst/destination/target).
+    # --max-layers 128: bootc images are large; 64 (default) is too few for
+    #   good layer reuse. See https://github.com/coreos/chunkah#compatibility-with-bootable-bootc-images
+    # --prune /sysroot/: exclude OSTree object store content (poor chunking target);
+    #   safe no-op if /sysroot is absent in this BuildStream-built image.
     LOADED=$($SUDO_CMD podman run --rm \
         --security-opt label=type:unconfined_t \
-        --mount=type=image,src="{{image_ref}}",dest=/chunkah \
+        --mount=type=image,src="{{image_ref}}",dst=/chunkah \
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
-        quay.io/jlebon/chunkah:latest build | $SUDO_CMD podman load)
-    
+        quay.io/coreos/chunkah build \
+            --max-layers 128 \
+            --prune /sysroot/ | $SUDO_CMD podman load)
+
     echo "$LOADED"
-    
-    # Parse the loaded image reference
+
+    # Parse the loaded image reference and retag to original name
     NEW_REF=$(echo "$LOADED" | grep -oP '(?<=Loaded image: ).*' || \
               echo "$LOADED" | grep -oP '(?<=Loaded image\(s\): ).*')
-    
+
     if [ -n "$NEW_REF" ] && [ "$NEW_REF" != "{{image_ref}}" ]; then
         echo "==> Retagging chunked image to {{image_ref}}..."
         $SUDO_CMD podman tag "$NEW_REF" "{{image_ref}}"
     fi
+
+    echo "==> Chunkify complete. Image reloaded as {{image_ref}}"
 
 # ── bcvk (fast VM testing) ───────────────────────────────────────────
 

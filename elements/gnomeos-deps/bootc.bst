@@ -182,7 +182,7 @@ sources:
     commit: 2203e8f331cc41afafa0f81e9a2df7d681e9f631
     repo: https://github.com/composefs/composefs-rs
     query:
-      rev: 2203e8f331cc41afafa0f81e9a2df7d681e9f631
+      rev: 2203e8f
     name: cfsctl
     version: 0.3.0
   - kind: registry
@@ -241,28 +241,28 @@ sources:
     commit: 2203e8f331cc41afafa0f81e9a2df7d681e9f631
     repo: https://github.com/composefs/composefs-rs
     query:
-      rev: 2203e8f331cc41afafa0f81e9a2df7d681e9f631
+      rev: 2203e8f
     name: composefs
     version: 0.3.0
   - kind: git
     commit: 2203e8f331cc41afafa0f81e9a2df7d681e9f631
     repo: https://github.com/composefs/composefs-rs
     query:
-      rev: 2203e8f331cc41afafa0f81e9a2df7d681e9f631
+      rev: 2203e8f
     name: composefs-boot
     version: 0.3.0
   - kind: git
     commit: 2203e8f331cc41afafa0f81e9a2df7d681e9f631
     repo: https://github.com/composefs/composefs-rs
     query:
-      rev: 2203e8f331cc41afafa0f81e9a2df7d681e9f631
+      rev: 2203e8f
     name: composefs-ioctls
     version: 0.3.0
   - kind: git
     commit: 2203e8f331cc41afafa0f81e9a2df7d681e9f631
     repo: https://github.com/composefs/composefs-rs
     query:
-      rev: 2203e8f331cc41afafa0f81e9a2df7d681e9f631
+      rev: 2203e8f
     name: composefs-oci
     version: 0.3.0
   - kind: registry

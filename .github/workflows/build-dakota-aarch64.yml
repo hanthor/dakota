@@ -1,10 +1,10 @@
 name: Build Dakota aarch64 (Multi-Runner)
 
 # Adapted from build-egg-multirunner.yml for aarch64 dakota:
+#   - All jobs run on ubuntu-24.04-arm (native aarch64, no QEMU needed)
 #   - IMAGE_NAME: dakota
 #   - --option arch aarch64 on all bst commands
-#   - qemu-user-static for aarch64 sandbox emulation on x86_64 runners
-#   - GHCR cache keys prefixed with aarch64- to avoid collisions
+#   - GHCR cache keys prefixed with aarch64- to avoid collisions with x86_64
 
 on:
   workflow_dispatch:
@@ -18,7 +18,6 @@ env:
   BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:f89b4aef847ef040b345acceda15a850219eb8f1
   NUM_CHUNKS: "10"
   CORE_SPLIT: "200"
-  # Passed to all bst invocations via BST_FLAGS
   BST_ARCH_FLAG: "--option arch aarch64"
 
 concurrency:
@@ -28,7 +27,7 @@ concurrency:
 jobs:
   # ── Phase 1: Plan ────────────────────────────────────────────────────
   planning:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     outputs:
       matrix_keys: ${{ steps.matrix.outputs.matrix_keys }}
       matrix_data: ${{ steps.matrix.outputs.matrix_data }}
@@ -37,12 +36,6 @@ jobs:
       final_target: ${{ steps.matrix.outputs.final_target }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Install QEMU user static (aarch64 sandbox emulation)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends qemu-user-static
-          sudo update-binfmts --enable qemu-aarch64 || true
 
       - run: podman pull "$BST2_IMAGE"
 
@@ -91,7 +84,7 @@ jobs:
   build_core:
     needs: planning
     if: needs.planning.outputs.core_targets != ''
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     permissions:
       contents: read
@@ -102,15 +95,9 @@ jobs:
     steps:
       - name: Free disk space
         uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6
+        continue-on-error: true
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Install QEMU user static
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends qemu-user-static
-          sudo update-binfmts --enable qemu-aarch64 || true
-
       - run: podman pull "$BST2_IMAGE"
 
       - name: Setup Just
@@ -185,7 +172,7 @@ jobs:
   build_deps:
     needs: [planning, build_core]
     if: always() && !contains(needs.*.result, 'failure') && needs.planning.outputs.matrix_keys != '[]'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     permissions:
       contents: read
@@ -202,15 +189,9 @@ jobs:
     steps:
       - name: Free disk space
         uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6
+        continue-on-error: true
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Install QEMU user static
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends qemu-user-static
-          sudo update-binfmts --enable qemu-aarch64 || true
-
       - run: podman pull "$BST2_IMAGE"
 
       - name: Setup Just
@@ -331,7 +312,7 @@ jobs:
   build_final:
     needs: [planning, build_deps]
     if: always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write
@@ -340,6 +321,7 @@ jobs:
     steps:
       - name: Free disk space
         uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6
+        continue-on-error: true
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -348,12 +330,6 @@ jobs:
         with:
           repository: coreos/chunkah
           path: chunkah
-
-      - name: Install QEMU user static
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends qemu-user-static
-          sudo update-binfmts --enable qemu-aarch64 || true
 
       - run: podman pull "$BST2_IMAGE"
 
@@ -374,7 +350,6 @@ jobs:
           mkdir -p ~/.cache/buildstream
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
 
-          # Core first
           if oras pull "ghcr.io/${REPO_LOWER}/cache-aarch64-core:latest" -o .; then
             if [ -f cas-core.tar.zst ]; then
               zstd -d -T0 cas-core.tar.zst -o cas-core.tar
@@ -383,7 +358,6 @@ jobs:
             fi
           fi
 
-          # Chunks
           echo "$MATRIX_KEYS" | jq -r '.[]' | while read -r chunk; do
             CACHE_KEY=$(echo "$CACHE_KEYS" | jq -r --arg c "$chunk" '.[$c] // empty')
             PULLED=false

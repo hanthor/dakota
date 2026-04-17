@@ -18,15 +18,11 @@
 
 ## ISO Download
 
-[dakota-live-latest.iso](https://projectbluefin.dev/dakota-live-latest.iso)
-
-## ISO Download
-
 [dakota-live-latest.iso](https://projectbluefin.dev/dakota-live-latest.iso) · [Checksum](https://projectbluefin.dev/dakota-live-latest.iso-CHECKSUM)
 
 ### ISO Archive
 
-All ISOs are published to the `testing` bucket at `projectbluefin.dev` and kept as a permanent archive. Updated automatically by [update-iso-table.yml](.github/workflows/update-iso-table.yml) after each [dakota-iso](https://github.com/projectbluefin/dakota-iso) build.
+Some ISOs are duds, so here's an archive:
 
 <!-- iso-table-start -->
 | Date | ISO | Checksum |

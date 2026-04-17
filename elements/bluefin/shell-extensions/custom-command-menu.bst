@@ -4,7 +4,7 @@ sources:
 - kind: git_repo
   url: github:StorageB/custom-command-menu.git
   track: main
-  ref: v14-0-g2c054fc91216f38d3def7fb273461a347494356c
+  ref: v14-3-g8391fe24d069fb983999ad8b6439b855af73e07f
 
 build-depends:
 - freedesktop-sdk.bst:public-stacks/buildsystem-make.bst

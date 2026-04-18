@@ -32,6 +32,7 @@ bst *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "${HOME}/.cache/buildstream"
+    VERSION_ID_OPT="--option version-id $(date +%Y%m%d)"
     # BST_FLAGS env var allows CI to inject --no-interactive, --config, etc.
     # Word-splitting is intentional here (flags are space-separated).
     # shellcheck disable=SC2086
@@ -43,7 +44,7 @@ bst *ARGS:
         -v "${HOME}/.cache/buildstream:/root/.cache/buildstream:rw" \
         -w /src \
         "{{bst2_image}}" \
-        bash -c 'bst --colors "$@"' -- ${BST_FLAGS:-} {{ARGS}}
+        bash -c 'bst --colors "$@"' -- ${BST_FLAGS:-} ${VERSION_ID_OPT} {{ARGS}}
 
 # ── Build ─────────────────────────────────────────────────────────────
 # Build the OCI image and load it into podman.

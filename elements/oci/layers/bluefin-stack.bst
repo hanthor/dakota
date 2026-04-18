@@ -18,3 +18,8 @@ public:
       - ln -s var/opt /opt
       - ln -s var/mnt /mnt
       - ln -s var/srv /srv
+      # Rebuild the ldconfig cache after /var is wiped; wiping /var removes
+      # /var/cache/ldconfig/ auxiliary cache data, so Mesa's libgallium and
+      # other libraries installed under non-standard GL paths won't be found
+      # at runtime without this.
+      - ldconfig

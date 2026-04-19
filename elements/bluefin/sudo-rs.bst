@@ -27,6 +27,7 @@ config:
 sources:
 - kind: git_repo
   url: github:memorysafety/sudo-rs.git
+  track: 'v[0-9]*.[0-9]*.[0-9]*'
   ref: 74e0db4f7f89b7429dd7ebbdfa94b0c55eba40cb
 - kind: cargo2
   url: crates:crates

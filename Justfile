@@ -523,15 +523,19 @@ chunkify image_ref:
         -e "CHUNKAH_ROOTFS=/chunkah" \
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
         "$CHUNKAH_REF" build --max-layers 120 --prune /sysroot/ \
-        --label ostree.commit- --label ostree.final-diffid- --tag "{{image_ref}}" \
+        --label ostree.commit- --label ostree.final-diffid- \
         | $SUDO_CMD podman load)
 
     echo "$LOADED"
 
-    # Parse the loaded image reference
-    NEW_REF=$(echo "$LOADED" | grep -oP '(?<=Loaded image: ).*' || \
-              echo "$LOADED" | grep -oP '(?<=Loaded image\(s\): ).*' || \
-              true)
+    # Parse the loaded image reference. Handles all podman output formats:
+    #   "Loaded image: <ref>"     — podman ≥4 with tagged OCI archive
+    #   "Loaded image(s): <ref>"  — older podman
+    #   bare 64-char hex sha256   — Ubuntu 24.04 podman for untagged archives
+    NEW_REF=$(echo "$LOADED" | sed -n 's/^Loaded image(s): //p; s/^Loaded image: //p' | head -1)
+    if [ -z "$NEW_REF" ]; then
+        NEW_REF=$(echo "$LOADED" | grep -oP '^[0-9a-f]{64}$' | head -1 || true)
+    fi
 
     if [ -n "$NEW_REF" ] && [ "$NEW_REF" != "{{image_ref}}" ]; then
         echo "==> Retagging chunked image to {{image_ref}}..."

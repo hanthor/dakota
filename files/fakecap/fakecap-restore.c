@@ -78,5 +78,5 @@ int main(int argc, char *argv[]) {
     fprintf(stderr,
             "fakecap-restore: %zu xattrs set, %zu files skipped, %zu errors\n",
             n_set, n_skip, n_err);
-    return 0;
+    return n_err > 0 ? 1 : 0;
 }

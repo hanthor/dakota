@@ -492,7 +492,7 @@ chunkify image_ref:
     cleanup() {
         $SUDO_CMD umount "$MERGED" 2>/dev/null || true
         $SUDO_CMD rm -rf "$UPPER" "$WORK" "$MERGED"
-        $SUDO_CMD podman image umount "{{image_ref}}" 2>/dev/null || true
+        $SUDO_CMD podman image umount "{{image_ref}}" >/dev/null 2>&1 || true
     }
     trap cleanup EXIT
 

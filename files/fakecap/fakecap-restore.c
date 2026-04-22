@@ -64,7 +64,13 @@ int main(int argc, char *argv[]) {
         int r = lsetxattr(fullpath, "user.component",
                           component, strlen(component), 0);
         if (r < 0) {
-            if (errno == ENOENT) { n_skip++; continue; }
+            /* ENOENT: file absent in this image variant — expected, skip.
+             * EPERM/ENOTSUP/EOPNOTSUPP: symlinks and some special files do
+             * not support user.* xattrs on Linux — expected, skip. */
+            if (errno == ENOENT   ||
+                errno == EPERM    ||
+                errno == ENOTSUP  ||
+                errno == EOPNOTSUPP) { n_skip++; continue; }
             n_err++;
             continue;
         }

@@ -492,7 +492,7 @@ chunkify image_ref:
     cleanup() {
         $SUDO_CMD umount "$MERGED" 2>/dev/null || true
         $SUDO_CMD rm -rf "$UPPER" "$WORK" "$MERGED"
-        $SUDO_CMD podman image umount "{{image_ref}}" 2>/dev/null || true
+        $SUDO_CMD podman image umount "{{image_ref}}" >/dev/null 2>&1 || true
     }
     trap cleanup EXIT
 
@@ -509,12 +509,20 @@ chunkify image_ref:
     # --max-layers 120 balances layer granularity with registry storage space.
     # CHUNKAH_CONFIG_STR preserves OCI labels (containers.bootc=1).
     # Image pinned from quay.io/coreos/chunkah:latest as of 2026-04-21.
+    # Pre-pull with retries so transient registry 5xx errors don't abort the run.
+    CHUNKAH_REF="quay.io/coreos/chunkah@sha256:306371251e61cc870c8546e225b13bdf2e333f79461dc5e0fc280cc170cee070"
+    for attempt in 1 2 3; do
+        $SUDO_CMD podman pull "$CHUNKAH_REF" && break
+        echo "==> chunkah pull attempt $attempt failed, retrying in 10s..."
+        [ "$attempt" -lt 3 ] && sleep 10
+    done
     LOADED=$($SUDO_CMD podman run --rm \
+        --pull never \
         --security-opt label=type:unconfined_t \
         -v "${MERGED}:/chunkah:ro" \
         -e "CHUNKAH_ROOTFS=/chunkah" \
         -e "CHUNKAH_CONFIG_STR=$CONFIG" \
-        quay.io/coreos/chunkah@sha256:306371251e61cc870c8546e225b13bdf2e333f79461dc5e0fc280cc170cee070 build --max-layers 120 --prune /sysroot/ \
+        "$CHUNKAH_REF" build --max-layers 120 --prune /sysroot/ \
         --label ostree.commit- --label ostree.final-diffid- --tag "{{image_ref}}" \
         | $SUDO_CMD podman load)
 

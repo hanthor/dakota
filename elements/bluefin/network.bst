@@ -16,12 +16,9 @@ config:
     # L+ removes any existing file (e.g. the empty placeholder from the base image)
     # so applications that read resolv.conf directly (Steam, Distrobox, etc.) get DNS.
     L+ /etc/resolv.conf - - - - /run/systemd/resolve/stub-resolv.conf
-    EOF
-
-  - |
-    install -Dm644 /dev/stdin "%{install-root}%{sysconfdir}/hosts" <<'EOF'
-    127.0.0.1   localhost
-    ::1         localhost
+    # Overwrite /etc/hosts at boot so it is never an empty placeholder.
+    # f+ truncates any existing file and writes the minimal localhost entries.
+    f+ /etc/hosts 0644 - - - "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n"
     EOF
 
   - "%{install-extra}"

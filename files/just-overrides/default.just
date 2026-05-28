@@ -183,19 +183,36 @@ report:
         FAILED_UNITS=\$(systemctl list-units --state=failed --no-legend --plain 2>/dev/null | awk '{print \$1}' | head -20 || echo '')
         KERNEL_VER=\$(uname -r)
         ARCH=\$(uname -m)
+        # Collect boot-time errors and warnings (kernel + services).
+        # Captures hardware init failures (e.g. Bluetooth firmware, udev group
+        # resolution) that never cause a unit to fully fail but are still bugs.
+        BOOT_ERRORS=\$(journalctl -b -p warning..err --no-pager -n 40 \
+            --output=short-monotonic 2>/dev/null \
+            | sed -E 's|/home/[^/[:space:]]+/|/home/<redacted>/|g' \
+            | sed -E 's|/run/user/[0-9]+|/run/user/<uid>|g')
+        # For each failed unit, collect last 15 lines of its journal.
+        FAILED_UNIT_LOGS=''
+        for _unit in \$FAILED_UNITS; do
+            _log=\$(journalctl -b -u \"\$_unit\" --no-pager -n 15 \
+                --output=short-monotonic 2>/dev/null \
+                | sed -E 's|/home/[^/[:space:]]+/|/home/<redacted>/|g')
+            FAILED_UNIT_LOGS=\"\${FAILED_UNIT_LOGS}=== \${_unit} ===\n\${_log}\n\"
+        done
         FLATPAK_LIST=\$(printf '%s' \"\$FLATPAK_LIST\" | sed -E 's|/home/[^/[:space:]]+/|/home/<redacted>/|g')
         GNOME_EXTENSIONS=\$(printf '%s' \"\$GNOME_EXTENSIONS\" | sed -E 's|/home/[^/[:space:]]+/|/home/<redacted>/|g')
-        printf 'BOOTED_IMAGE=%q\n'    \"\$BOOTED_IMAGE\"    > '$COLLECTION_OUT'
-        printf 'BOOTED_DIGEST=%q\n'   \"\$BOOTED_DIGEST\"   >> '$COLLECTION_OUT'
-        printf 'STAGED_IMAGE=%q\n'    \"\$STAGED_IMAGE\"    >> '$COLLECTION_OUT'
-        printf 'GNOME_VERSION=%q\n'   \"\$GNOME_VERSION\"   >> '$COLLECTION_OUT'
-        printf 'KERNEL_VER=%q\n'      \"\$KERNEL_VER\"      >> '$COLLECTION_OUT'
-        printf 'ARCH=%q\n'            \"\$ARCH\"             >> '$COLLECTION_OUT'
-        printf 'LOAD_AVG=%q\n'        \"\$LOAD_AVG\"         >> '$COLLECTION_OUT'
-        printf 'MEM_INFO=%q\n'        \"\$MEM_INFO\"         >> '$COLLECTION_OUT'
-        printf 'FLATPAK_LIST=%q\n'    \"\$FLATPAK_LIST\"    >> '$COLLECTION_OUT'
-        printf 'GNOME_EXTENSIONS=%q\n' \"\$GNOME_EXTENSIONS\" >> '$COLLECTION_OUT'
-        printf 'FAILED_UNITS=%q\n'    \"\$FAILED_UNITS\"    >> '$COLLECTION_OUT'
+        printf 'BOOTED_IMAGE=%q\n'       \"\$BOOTED_IMAGE\"       > '$COLLECTION_OUT'
+        printf 'BOOTED_DIGEST=%q\n'      \"\$BOOTED_DIGEST\"      >> '$COLLECTION_OUT'
+        printf 'STAGED_IMAGE=%q\n'       \"\$STAGED_IMAGE\"       >> '$COLLECTION_OUT'
+        printf 'GNOME_VERSION=%q\n'      \"\$GNOME_VERSION\"      >> '$COLLECTION_OUT'
+        printf 'KERNEL_VER=%q\n'         \"\$KERNEL_VER\"         >> '$COLLECTION_OUT'
+        printf 'ARCH=%q\n'               \"\$ARCH\"               >> '$COLLECTION_OUT'
+        printf 'LOAD_AVG=%q\n'           \"\$LOAD_AVG\"           >> '$COLLECTION_OUT'
+        printf 'MEM_INFO=%q\n'           \"\$MEM_INFO\"           >> '$COLLECTION_OUT'
+        printf 'FLATPAK_LIST=%q\n'       \"\$FLATPAK_LIST\"       >> '$COLLECTION_OUT'
+        printf 'GNOME_EXTENSIONS=%q\n'   \"\$GNOME_EXTENSIONS\"   >> '$COLLECTION_OUT'
+        printf 'FAILED_UNITS=%q\n'       \"\$FAILED_UNITS\"       >> '$COLLECTION_OUT'
+        printf 'BOOT_ERRORS=%q\n'        \"\$BOOT_ERRORS\"        >> '$COLLECTION_OUT'
+        printf 'FAILED_UNIT_LOGS=%q\n'   \"\$FAILED_UNIT_LOGS\"   >> '$COLLECTION_OUT'
     "
     # shellcheck disable=SC1090
     source "$COLLECTION_OUT"
@@ -290,6 +307,19 @@ report:
     printf '\n### Failed Systemd Units\n\n'
     if [[ -n "${FAILED_UNITS}" ]]; then
         printf '%s\n' "${FAILED_UNITS}" | sed 's/^/- /'
+        if [[ -n "${FAILED_UNIT_LOGS}" ]]; then
+            printf '\n#### Unit Logs\n\n```\n'
+            printf '%b\n' "${FAILED_UNIT_LOGS}"
+            printf '```\n'
+        fi
+    else
+        printf '_None_ ✓\n'
+    fi
+    printf '\n### Boot Errors and Warnings\n\n'
+    if [[ -n "${BOOT_ERRORS}" ]]; then
+        printf '```\n'
+        printf '%s\n' "${BOOT_ERRORS}"
+        printf '```\n'
     else
         printf '_None_ ✓\n'
     fi

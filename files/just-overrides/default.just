@@ -191,13 +191,16 @@ report:
             | sed -E 's|/home/[^/[:space:]]+/|/home/<redacted>/|g' \
             | sed -E 's|/run/user/[0-9]+|/run/user/<uid>|g')
         # For each failed unit, collect last 15 lines of its journal.
-        FAILED_UNIT_LOGS=''
+        _unit_logs_tmp=\$(mktemp)
         for _unit in \$FAILED_UNITS; do
             _log=\$(journalctl -b -u \"\$_unit\" --no-pager -n 15 \
                 --output=short-monotonic 2>/dev/null \
-                | sed -E 's|/home/[^/[:space:]]+/|/home/<redacted>/|g')
-            FAILED_UNIT_LOGS=\"\${FAILED_UNIT_LOGS}=== \${_unit} ===\n\${_log}\n\"
+                | sed -E 's|/home/[^/[:space:]]+/|/home/<redacted>/|g' \
+                | sed -E 's|/run/user/[0-9]+|/run/user/<uid>|g')
+            printf '=== %s ===\n%s\n' \"\$_unit\" \"\$_log\" >> \"\$_unit_logs_tmp\"
         done
+        FAILED_UNIT_LOGS=\$(cat \"\$_unit_logs_tmp\")
+        rm -f \"\$_unit_logs_tmp\"
         FLATPAK_LIST=\$(printf '%s' \"\$FLATPAK_LIST\" | sed -E 's|/home/[^/[:space:]]+/|/home/<redacted>/|g')
         GNOME_EXTENSIONS=\$(printf '%s' \"\$GNOME_EXTENSIONS\" | sed -E 's|/home/[^/[:space:]]+/|/home/<redacted>/|g')
         printf 'BOOTED_IMAGE=%q\n'       \"\$BOOTED_IMAGE\"       > '$COLLECTION_OUT'
@@ -309,7 +312,7 @@ report:
         printf '%s\n' "${FAILED_UNITS}" | sed 's/^/- /'
         if [[ -n "${FAILED_UNIT_LOGS}" ]]; then
             printf '\n#### Unit Logs\n\n```\n'
-            printf '%b\n' "${FAILED_UNIT_LOGS}"
+            printf '%s\n' "${FAILED_UNIT_LOGS}"
             printf '```\n'
         fi
     else

@@ -28,6 +28,22 @@ Test machine (physical hardware running dakota):
 - **Use exact digest for bootc switch** — tag-based switch silently skips if the tag already matches the booted digest (see Lessons Learned).
 - **BUILD FAILURES = FILE AN ISSUE.** Any element that fails during a lab build must be filed as a GitHub issue — even if it appears pre-existing.
 
+## Slash commands (maintainers and wranglers only)
+
+See full spec: `.github/skills/lab-commands.md`
+
+| Command | Effect |
+|---------|--------|
+| `/lab run` | Dispatch a new lab workflow for this PR |
+| `/lab reset` | Cancel running workflow, dispatch a fresh run |
+| `/lab skip <reason>` | Skip lab for this PR (reason required) |
+| `/lab pass` | Manual override: mark as passed |
+| `/lab fail` | Manual override: mark as failed |
+
+**Agents must never post `/lab` commands.** A question in a PR comment is not a
+command. Only humans with write+ access issue lab commands. When in doubt, do
+nothing.
+
 ## Commands
 
 | Command | Where | What |

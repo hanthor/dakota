@@ -49,6 +49,13 @@ toggle-devmode:
 [group('System')]
 dx-group:
     #!/usr/bin/pkexec bash
+
+    # Guard: PKEXEC_UID must be set and non-root
+    if [[ -z "${PKEXEC_UID}" ]] || [[ "${PKEXEC_UID}" == "0" ]]; then
+        echo "ERROR: run this via ujust, not directly as root."
+        exit 1
+    fi
+
     append_group() {
         local group_name="$1"
         if ! grep -q "^$group_name:" /etc/group; then
@@ -64,7 +71,13 @@ dx-group:
         usermod -aG $GROUP_ADD {{ `id -un` }}
     done
 
-    echo "Reboot system and log back in to use docker, libvirt, incus, and serial connections."
+    echo ""
+    echo "Groups added: docker, incus-admin, libvirt, dialout."
+    echo "A reboot is required for group membership to take effect."
+    echo ""
+    if gum confirm "Reboot now?"; then
+        systemctl reboot
+    fi
 
 # Install system flatpaks for rebasers
 [group('System')]

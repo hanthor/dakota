@@ -1,7 +1,8 @@
 # Bluefin Dakota
 *Dakotaraptor steini* 
 
-[Bluefin](https://projectbluefin.io) built on [GNOME OS](https://os.gnome.org/), assembled entirely from source.
+- [Bluefin](https://projectbluefin.io) built on [GNOME OS](https://os.gnome.org/), assembled entirely from source.
+- [Deepwiki](https://deepwiki.com/projectbluefin/dakota)
 
 <a href="https://docs.projectbluefin.io/changelogs">
   <picture>

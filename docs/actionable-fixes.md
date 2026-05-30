@@ -3,14 +3,14 @@
 ## #606 — Highlight/copy broken in ghostty
 Ghostty clipboard/highlight behavior differs from GNOME Terminal. Workaround: use Ctrl+Shift+C/V or configure ghostty clipboard settings.
 
-## #603 — firstboot-services.bst orphaned
-The firstboot-services.bst file references a non-existent source. Need to either restore the source or remove the orphaned .bst reference.
+## #603 — firstboot-services.bst not wired into build
+Fixed by adding `firstboot-services.bst` to `elements/bluefin/deps.bst`. This ensures its installed service artifacts land in images during the BST build.
 
 ## #536 — ujust report reduce friction
 Agent-ready improvement: allow ujust report to pre-fill diagnostic data and reduce OTel collection time for quick submissions.
 
 ## #527 — Ghost lab BST gate fails resolving junction
-BST gate failure resolving gnome-build-meta junction. Check junction URL is accessible from CI runner and retry with --pull.
+BST gate failure during dispatch: `project.conf` / ref-lock resolution fails when the gnome-build-meta junction ref is stale. Fix: update the junction ref in `project.conf` to a commit that resolves cleanly, then re-dispatch the gate workflow.
 
 ## #524 — testlab automation requires manual runner
 p0 bug: automate runner bring-up so manual intervention is not needed for each test run.

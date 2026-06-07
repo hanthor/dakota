@@ -2,9 +2,9 @@ name: Build Bluefin dakota
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, gnome-51]
   merge_group:
-    branches: [main]
+    branches: [main, gnome-51]
   workflow_dispatch:
     # WARNING: Do not manually dispatch immediately after auto/track-* ref bumps
     # (e.g. Renovate PRs updating gnome-build-meta.bst). Cold builds of GNOME
@@ -54,14 +54,18 @@ jobs:
 
       # Cache the BST workspace (junction git sources + bst2 container layers).
       # Key includes junction element refs so junction bumps start fresh.
+      # Branch name is included to prevent gnome-51 (master) and main (gnome-50)
+      # junction caches from colliding.
       # Without this, bst show must clone gnome-build-meta + freedesktop-sdk
       # from scratch on every PR run (~15-25 min extra).
       - name: Restore BST cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: ~/.cache/buildstream
-          key: bst-show-${{ hashFiles('elements/gnome-build-meta.bst', 'elements/freedesktop-sdk.bst', 'Justfile') }}
-          restore-keys: bst-show-
+          key: bst-show-${{ github.ref_name }}-${{ hashFiles('elements/gnome-build-meta.bst', 'elements/freedesktop-sdk.bst', 'Justfile') }}
+          restore-keys: |
+            bst-show-${{ github.ref_name }}-
+            bst-show-
 
       - name: Validate BST element graph (default)
         env:

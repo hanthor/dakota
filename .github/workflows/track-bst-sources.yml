@@ -855,3 +855,73 @@ jobs:
               --body "Updates \`gnome-build-meta.bst\` and \`freedesktop-sdk.bst\` atomically. Manual review required — junction bumps can break downstream elements.")
             echo "PR: $PR_URL"
           fi
+
+  # ── Track gnome-build-meta master for gnome-51 branch ─────────────────────
+  # Periodically bumps gnome-build-meta.bst on the gnome-51 branch to track
+  # gnome-build-meta master (GNOME 51 development). Opens PRs against gnome-51,
+  # not main. No auto-merge — junction bumps require human review.
+  # When a gnome-51 branch is cut in gnome-build-meta, change track: master
+  # to track: gnome-51 in elements/gnome-build-meta.bst on the gnome-51 branch.
+  track-core-junctions-gnome-51:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    if: >-
+      github.event.inputs.group == 'all' ||
+      github.event.inputs.group == 'core-junctions' ||
+      github.event_name == 'schedule'
+    steps:
+      - name: Get mergeraptor token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.MERGERAPTOR_APP_ID }}
+          private-key: ${{ secrets.MERGERAPTOR_PRIVATE_KEY }}
+
+      - name: Checkout gnome-51 branch
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: gnome-51
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Just
+        uses: taiki-e/install-action@25435dc8dd3baed7417e0c96d3fe89013a5b2e09 # v2
+        with:
+          tool: just
+
+      - name: Pull BuildStream container image
+        run: podman pull "$BST2_IMAGE"
+
+      - name: Track gnome-build-meta master ref
+        run: just bst --no-interactive source track gnome-build-meta.bst
+
+      - name: Create or update PR against gnome-51
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git diff --quiet && { echo "No junction updates"; exit 0; }
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -B auto/track-gnome51-junction origin/gnome-51
+          git add elements/gnome-build-meta.bst
+          git commit -m "chore(deps): update gnome-build-meta master ref (gnome-51 branch)"
+          git push --force-with-lease origin auto/track-gnome51-junction
+
+          EXISTING=$(gh pr list --head auto/track-gnome51-junction --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$EXISTING" ]; then
+            PR_URL=$(gh pr view "$EXISTING" --json url --jq '.url')
+            echo "Existing PR: $PR_URL"
+          else
+            PR_URL=$(gh pr create \
+              --base gnome-51 \
+              --head auto/track-gnome51-junction \
+              --title "chore(deps): update gnome-build-meta master ref (gnome-51 branch)" \
+              --body "Bumps \`gnome-build-meta.bst\` on the \`gnome-51\` branch to the latest \`master\` ref. Manual review required — junction bumps can break downstream elements.
+
+> **Note:** When gnome-build-meta cuts a \`gnome-51\` branch, change \`track: master\` to \`track: gnome-51\` in \`elements/gnome-build-meta.bst\` on this branch.")
+            echo "PR: $PR_URL"
+          fi

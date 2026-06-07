@@ -894,8 +894,10 @@ jobs:
       - name: Pull BuildStream container image
         run: podman pull "$BST2_IMAGE"
 
-      - name: Track gnome-build-meta master ref
-        run: just bst --no-interactive source track gnome-build-meta.bst
+      - name: Track core junctions (gnome-build-meta master + freedesktop-sdk)
+        run: |
+          just bst --no-interactive source track gnome-build-meta.bst
+          just bst --no-interactive source track freedesktop-sdk.bst
 
       - name: Create or update PR against gnome-51
         env:
@@ -907,8 +909,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git checkout -B auto/track-gnome51-junction origin/gnome-51
-          git add elements/gnome-build-meta.bst
-          git commit -m "chore(deps): update gnome-build-meta master ref (gnome-51 branch)"
+          git add elements/gnome-build-meta.bst elements/freedesktop-sdk.bst
+          git commit -m "chore(deps): update core junctions (gnome-51 branch)"
           git push --force-with-lease origin auto/track-gnome51-junction
 
           EXISTING=$(gh pr list --head auto/track-gnome51-junction --json number --jq '.[0].number' 2>/dev/null || true)
@@ -919,8 +921,8 @@ jobs:
             PR_URL=$(gh pr create \
               --base gnome-51 \
               --head auto/track-gnome51-junction \
-              --title "chore(deps): update gnome-build-meta master ref (gnome-51 branch)" \
-              --body "Bumps \`gnome-build-meta.bst\` on the \`gnome-51\` branch to the latest \`master\` ref. Manual review required — junction bumps can break downstream elements.
+              --title "chore(deps): update core junctions (gnome-51 branch)" \
+              --body "Bumps \`gnome-build-meta.bst\` (master) and \`freedesktop-sdk.bst\` atomically on the \`gnome-51\` branch. Manual review required — junction bumps can break downstream elements.
 
 > **Note:** When gnome-build-meta cuts a \`gnome-51\` branch, change \`track: master\` to \`track: gnome-51\` in \`elements/gnome-build-meta.bst\` on this branch.")
             echo "PR: $PR_URL"

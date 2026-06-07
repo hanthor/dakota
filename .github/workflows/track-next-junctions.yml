@@ -53,7 +53,7 @@ jobs:
           just bst --no-interactive source track gnome-build-meta.bst
           just bst --no-interactive source track freedesktop-sdk.bst
 
-      - name: Create or update PR against gnome-51
+      - name: Create or update PR against gnome-51 (auto-merge)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -69,15 +69,19 @@ jobs:
 
           EXISTING=$(gh pr list --head auto/track-gnome51-junction --json number --jq '.[0].number' 2>/dev/null || true)
           if [ -n "$EXISTING" ]; then
-            PR_URL=$(gh pr view "$EXISTING" --json url --jq '.url')
-            echo "Existing PR: $PR_URL"
+            PR_NUMBER="$EXISTING"
+            echo "Existing PR #${PR_NUMBER} — re-enabling auto-merge"
           else
-            PR_URL=$(gh pr create \
+            PR_NUMBER=$(gh pr create \
               --base gnome-51 \
               --head auto/track-gnome51-junction \
               --title "chore(deps): update core junctions (gnome-51 branch)" \
-              --body "Bumps \`gnome-build-meta.bst\` (master) and \`freedesktop-sdk.bst\` atomically on the \`gnome-51\` branch. Manual review required — junction bumps can break downstream elements.
+              --body "Bumps \`gnome-build-meta.bst\` (master) and \`freedesktop-sdk.bst\` atomically on the \`gnome-51\` branch. Auto-merges once \`bst show\` validation passes.
 
-> **Note:** When gnome-build-meta cuts a \`gnome-51\` branch, change \`track: master\` to \`track: gnome-51\` in \`elements/gnome-build-meta.bst\` on this branch.")
-            echo "PR: $PR_URL"
+> **Note:** When gnome-build-meta cuts a \`gnome-51\` branch, change \`track: master\` to \`track: gnome-51\` in \`elements/gnome-build-meta.bst\` on this branch." \
+              --json number --jq '.number')
+            echo "Created PR #${PR_NUMBER}"
           fi
+
+          # Enable auto-merge — merges automatically once required checks pass.
+          gh pr merge "$PR_NUMBER" --auto --squash

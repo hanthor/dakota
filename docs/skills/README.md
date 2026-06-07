@@ -33,6 +33,7 @@ Every agent session produces two outputs: **the work** (the PR) and **the learni
 | Local OTA testing (QEMU or physical hardware) | [`local-ota.md`](local-ota.md) |
 | CI pipeline, remote cache, GHCR | [`ci.md`](ci.md) |
 | Manual promotion (testing → stable) and release | [`ci.md`](ci.md) — *Manual stable promotion flow* |
+| gnome-51 branch strategy / GNOME version stream | [`ci.md`](ci.md) — *gnome-51 branch strategy* |
 | Clearing stuck merge queue | [`merge-queue.md`](merge-queue.md) |
 | Actionadon lifecycle, issue queue, data donation | [`actionadon.md`](actionadon.md) |
 | Project overview and what Dakota is | [`overview.md`](overview.md) |

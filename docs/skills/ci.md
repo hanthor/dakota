@@ -503,3 +503,35 @@ Step 4 requires approval at: https://github.com/projectbluefin/dakota/deployment
 
 The GitHub release (notes + card + SBOM) is created automatically by
 `release.yml` after every successful `publish.yml` run — no manual step needed.
+
+### gnome-51 branch strategy — parallel GNOME version stream (2026-06-07)
+
+Dakota maintains a `gnome-51` branch alongside `main` to track GNOME 51 development.
+
+**Key facts:**
+- `gnome-51` tracks `gnome-build-meta master` (no `gnome-51` branch yet — expected ~Sep 2026)
+- When gnome-build-meta cuts `gnome-51`, change `track: master` → `track: gnome-51` in `elements/gnome-build-meta.bst`
+- Published tag: `:gnome-51-testing` (separate from `:testing` which is `main`)
+- Weekly promotion does NOT apply to `gnome-51` — kept separate from `:stable`
+
+**CI differences from main:**
+- `build.yml` fires on `pull_request`/`merge_group` against `gnome-51` branch
+- Cache key is branch-scoped: `bst-show-gnome-51-${{ hashFiles(...) }}` — prevents collision with `main` junctions
+- `publish.yml` computes `testing_tag` dynamically: `gnome-51` → `:gnome-51-testing`
+- The `testing` branch fast-forward is skipped for non-`main` branches
+- Separate concurrency group: `publish-gnome-51`
+
+**Automatic ref tracking:**
+`track-core-junctions-gnome-51` job in `track-bst-sources.yml` runs daily and opens PRs against `gnome-51` (not `main`) when gnome-build-meta master advances.
+
+**Override audit result (2026-06-07):**
+- Dropped `gnomeos-deps/bootc.bst` override — gnome-build-meta master ships v1.15.2 which matches our former pin
+- All other overrides (`plymouth-gnome-theme`, `os-release`, `signed-modules`, plugins) kept unchanged
+- All 11 freedesktop-sdk patches apply cleanly; `disable-lorry-mirrors.patch` (gnome-build-meta) applies cleanly
+
+**bst show validated clean:**
+```
+bst show --deps all oci/bluefin.bst    # exit 0
+bst show --deps all oci/bluefin-nvidia.bst  # exit 0
+```
+gnome-build-meta master ref: `49-branchpoint-711-g1d96e6f43e8f6c0db4441ec2d51c1250c22275e7`

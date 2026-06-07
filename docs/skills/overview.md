@@ -61,9 +61,21 @@ Dakota currently maintains two GNOME version streams:
 
 Once `gnome-build-meta` creates its `gnome-51` branch, update `elements/gnome-build-meta.bst` on Dakota's `gnome-51` branch so `track: master` becomes `track: gnome-51`. After that, future junction bumps on Dakota `gnome-51` should follow the new upstream branch instead of `master`.
 
-### Published tag
+### Published tags
 
-The `gnome-51` stream publishes to `ghcr.io/projectbluefin/dakota:next` (alias: `:btw`).
+The `gnome-51` stream publishes to:
+- `ghcr.io/projectbluefin/dakota:next` — primary rolling tag
+- `ghcr.io/projectbluefin/dakota:btw` — permanent alias ("btw I use dakota")
+
+### Arch competitor positioning
+
+`:next`/`:btw` is Dakota's arch competitor stream:
+- **Latest GNOME** — tracks gnome-build-meta `master` the moment it lands
+- **Memory-safe defaults** — sudo-rs, uutils-coreutils (no other Bluefin variant ships these)
+- **Rolling, zero maintenance** — daily auto-merge from `main` + daily junction tracker at 20:00 UTC; auto-merges on passing CI
+- **Built from source** — hermetic BST build, reproducible, auditable
+
+The naming is intentional: `:btw` = "btw I use dakota".
 
 **Historical path note:** the repo still uses `bluefin` in key filenames such as
 `elements/bluefin/*` and `oci/bluefin.bst`. Those are Dakota paths, not proof

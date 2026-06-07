@@ -535,3 +535,39 @@ bst show --deps all oci/bluefin.bst    # exit 0
 bst show --deps all oci/bluefin-nvidia.bst  # exit 0
 ```
 gnome-build-meta master ref: `49-branchpoint-711-g1d96e6f43e8f6c0db4441ec2d51c1250c22275e7`
+
+### YAML block scalar broken by unindented `>` in `run: |` bodies (2026-06-07)
+
+Embedding a Markdown blockquote (`> text`) inside a multi-line bash string in a
+`run: |` block causes a YAML `startup_failure` if the `>` appears at column 0
+(no indentation). YAML exits the literal block when it encounters an unindented
+line, then re-parses the `>` as a folded block scalar indicator — and chokes.
+
+**Symptom:** GHA shows `startup_failure` / "This run likely failed because of a
+workflow file issue" with 0s duration. Local `python3 -c "import yaml; yaml.safe_load(open(f))"` reproduces it immediately.
+
+**Pattern that breaks:**
+```yaml
+    - name: Create PR
+      run: |
+        gh pr create \
+          --body "First paragraph.
+
+> **Note:** This blockquote starts at column 0 — YAML exits the block here." \
+          --json number
+```
+
+**Fix:** Build multi-line bodies in a `printf` variable first:
+```yaml
+    - name: Create PR
+      run: |
+        PR_BODY=$(printf '%s\n\n%s' \
+          "First paragraph." \
+          "> **Note:** Blockquote safely inside a bash string.")
+        gh pr create \
+          --body "$PR_BODY" \
+          --json number
+```
+
+Applies to any `>` or `|` at column 0 inside a `run: |` block. Validate all
+workflow files before push: `python3 -c "import yaml; yaml.safe_load(open(f))"`.

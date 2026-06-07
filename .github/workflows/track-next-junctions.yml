@@ -72,14 +72,15 @@ jobs:
             PR_NUMBER="$EXISTING"
             echo "Existing PR #${PR_NUMBER} — re-enabling auto-merge"
           else
-            PR_NUMBER=$(gh pr create \
-              --base gnome-51 \
-              --head auto/track-gnome51-junction \
-              --title "chore(deps): update core junctions (gnome-51 branch)" \
-              --body "Bumps \`gnome-build-meta.bst\` (master) and \`freedesktop-sdk.bst\` atomically on the \`gnome-51\` branch. Auto-merges once \`bst show\` validation passes.
-
-> **Note:** When gnome-build-meta cuts a \`gnome-51\` branch, change \`track: master\` to \`track: gnome-51\` in \`elements/gnome-build-meta.bst\` on this branch." \
-              --json number --jq '.number')
+            PR_BODY=$(printf '%s\n\n%s' \
+            "Bumps \`gnome-build-meta.bst\` (master) and \`freedesktop-sdk.bst\` atomically on the \`gnome-51\` branch. Auto-merges once \`bst show\` validation passes." \
+            "> **Note:** When gnome-build-meta cuts a \`gnome-51\` branch, change \`track: master\` to \`track: gnome-51\` in \`elements/gnome-build-meta.bst\` on this branch.")
+          PR_NUMBER=$(gh pr create \
+            --base gnome-51 \
+            --head auto/track-gnome51-junction \
+            --title "chore(deps): update core junctions (gnome-51 branch)" \
+            --body "$PR_BODY" \
+            --json number --jq '.number')
             echo "Created PR #${PR_NUMBER}"
           fi
 

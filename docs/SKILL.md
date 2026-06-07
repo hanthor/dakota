@@ -25,6 +25,7 @@ If your first draft says "use dnf/RPM/COPR" or "edit the Containerfile to add a 
 | Package a GNOME extension | `docs/skills/packaging-gnome-extensions.md` |
 | Test OTA updates locally or on hardware | `docs/skills/local-ota.md` |
 | Debug CI failures | `docs/skills/ci.md` |
+| Understand the `gnome-51` stream / GNOME version branch | `docs/skills/ci.md` + `docs/skills/overview.md` |
 | Understand what dakota/Bluefin is | `docs/skills/overview.md` |
 | Write ujust recipes | `.github/skills/ujust-recipes.md` |
 | Work on the installer | `docs/skills/installer.md` |

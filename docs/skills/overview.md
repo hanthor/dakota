@@ -46,6 +46,25 @@ freedesktop-sdk provides glibc/systemd/kernel, gnome-build-meta provides GNOME S
 
 Published image: `ghcr.io/projectbluefin/dakota:{testing,latest,stable}`
 
+## GNOME Version Streams
+
+Dakota currently maintains two GNOME version streams:
+
+- `main` — the default Dakota stream. It publishes the normal `:testing`, `:latest`, and `:stable` tags.
+- `gnome-51` — a forward-looking development stream for GNOME 51 work. It is intentionally separate from `main` so GNOME pre-release churn does not change the default Dakota stream.
+
+### Current `gnome-51` tracking target
+
+`gnome-51` currently tracks `gnome-build-meta` `master` because upstream has not cut a dedicated `gnome-51` branch yet.
+
+### When upstream cuts `gnome-51`
+
+Once `gnome-build-meta` creates its `gnome-51` branch, update `elements/gnome-build-meta.bst` on Dakota's `gnome-51` branch so `track: master` becomes `track: gnome-51`. After that, future junction bumps on Dakota `gnome-51` should follow the new upstream branch instead of `master`.
+
+### Published tag
+
+The `gnome-51` stream publishes to `ghcr.io/projectbluefin/dakota:gnome-51-testing`.
+
 **Historical path note:** the repo still uses `bluefin` in key filenames such as
 `elements/bluefin/*` and `oci/bluefin.bst`. Those are Dakota paths, not proof
 that Dakota follows bluefin's dnf/Containerfile overlay model.

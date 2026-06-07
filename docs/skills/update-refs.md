@@ -11,6 +11,7 @@ Load when updating an existing package's version in `projectbluefin/dakota`.
 
 - Adding a new package → `add-package.md`
 - Bumping junction refs (gnome-build-meta, freedesktop-sdk) → `patch-junctions.md`
+  - **Exception:** Dakota's `gnome-51` branch has a dedicated `gnome-build-meta` tracking flow documented below.
 - Debugging a post-update build failure → `debugging.md`
 
 ## Quick Reference
@@ -20,6 +21,7 @@ Load when updating an existing package's version in `projectbluefin/dakota`.
 | Update tarball to version X | Edit `version:` variable in element, then `just bst source track bluefin/<name>.bst` |
 | Update git-tracked element to latest | `just bst source track bluefin/<name>.bst` |
 | Update all elements in a group | See `.github/workflows/track-bst-sources.yml` |
+| Bump `gnome-build-meta` on `gnome-51` | `just bst source track gnome-build-meta.bst` |
 | Regenerate cargo2 sources for a Rust element | `python3 files/scripts/generate_cargo_sources.py path/to/Cargo.lock` |
 
 The real tracking command is `just bst source track <element>` — it updates the `ref:` field in the element's source block to the latest matching version/commit.
@@ -89,9 +91,28 @@ just bst build bluefin/<name>.bst        # build only this element
 just build                               # full image build (when unsure)
 ```
 
+## Special Case — `gnome-build-meta` on `gnome-51`
+
+Dakota's `gnome-51` branch is the exception to the normal package-oriented update flow in this file.
+
+- The branch currently tracks `gnome-build-meta` `master`, not a `gnome-51` branch, because upstream has not cut one yet.
+- Daily automation (`track-core-junctions-gnome-51` in `.github/workflows/track-bst-sources.yml`) tracks that junction and opens PRs against Dakota `gnome-51` when upstream `master` advances.
+- Manual bump path is:
+
+```bash
+just bst source track gnome-build-meta.bst
+just bst show oci/bluefin.bst
+```
+
+Use this flow only on Dakota's `gnome-51` branch. This is a branch-maintenance junction bump, not the normal "update a package element" workflow.
+
+### When upstream cuts `gnome-51`
+
+Once `gnome-build-meta` creates a real `gnome-51` branch, first update `elements/gnome-build-meta.bst` on Dakota `gnome-51` from `track: master` to `track: gnome-51`. After that, continue using the same tracking command, but it should follow the upstream `gnome-51` branch instead of `master`.
+
 ## Junction Bumps
 
-For `elements/gnome-build-meta.bst` or `elements/freedesktop-sdk.bst` ref updates, see `patch-junctions.md`. Junction bumps require patch verification and are a separate workflow.
+For `elements/gnome-build-meta.bst` or `elements/freedesktop-sdk.bst` ref updates outside the Dakota `gnome-51` special case above, see `patch-junctions.md`. Junction bumps require patch verification and are a separate workflow.
 
 ## Lessons Learned
 

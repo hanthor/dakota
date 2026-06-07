@@ -60,12 +60,14 @@ jobs:
           fi
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
           # Derive the :testing tag from the branch name.
-          # main → :testing  (keeps existing behaviour)
-          # gnome-51 → :gnome-51-testing
+          # main     → :testing  (stable dev stream)
+          # gnome-51 → :next     (rolling GNOME master / bleeding edge)
           if [[ "$BRANCH" == "main" || "$BRANCH" == gh-readonly-queue/main/* ]]; then
             echo "testing_tag=testing" >> "$GITHUB_OUTPUT"
+          elif [[ "$BRANCH" == "gnome-51" || "$BRANCH" == gh-readonly-queue/gnome-51/* ]]; then
+            echo "testing_tag=next" >> "$GITHUB_OUTPUT"
           else
-            # Strip merge-queue prefix (gh-readonly-queue/gnome-51/... → gnome-51)
+            # Fallback for any future branches: strip merge-queue prefix
             CLEAN="${BRANCH#gh-readonly-queue/}"
             CLEAN="${CLEAN%%/*}"
             echo "testing_tag=${CLEAN}-testing" >> "$GITHUB_OUTPUT"
@@ -285,6 +287,21 @@ jobs:
             [ "$attempt" -lt 3 ] && sleep 5
           done
           $PUSH_OK || { echo "ERROR: all push attempts failed for :${TESTING_TAG}"; exit 1; }
+
+      - name: Push :btw alias (gnome-51 / next stream only)
+        if: needs.setup.outputs.testing_tag == 'next'
+        env:
+          BUILD_SHA: ${{ needs.setup.outputs.sha }}
+        run: |
+          IMAGE="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.image_suffix }}"
+          sudo podman tag "${IMAGE}:${BUILD_SHA}" "${IMAGE}:btw"
+          PUSH_OK=false
+          for attempt in 1 2 3; do
+            sudo podman push --compression-format=zstd "${IMAGE}:btw" && { PUSH_OK=true; break; }
+            echo "Push attempt ${attempt} failed for :btw, retrying in 5s..."
+            [ "$attempt" -lt 3 ] && sleep 5
+          done
+          $PUSH_OK || { echo "ERROR: all push attempts failed for :btw"; exit 1; }
 
       - name: Fast-forward testing branch
         if: matrix.image_suffix == '' && needs.setup.outputs.branch == 'main'

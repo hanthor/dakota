@@ -63,7 +63,7 @@ Once `gnome-build-meta` creates its `gnome-51` branch, update `elements/gnome-bu
 
 ### Published tag
 
-The `gnome-51` stream publishes to `ghcr.io/projectbluefin/dakota:gnome-51-testing`.
+The `gnome-51` stream publishes to `ghcr.io/projectbluefin/dakota:next` (alias: `:btw`).
 
 **Historical path note:** the repo still uses `bluefin` in key filenames such as
 `elements/bluefin/*` and `oci/bluefin.bst`. Those are Dakota paths, not proof

@@ -511,13 +511,13 @@ Dakota maintains a `gnome-51` branch alongside `main` to track GNOME 51 developm
 **Key facts:**
 - `gnome-51` tracks `gnome-build-meta master` (no `gnome-51` branch yet — expected ~Sep 2026)
 - When gnome-build-meta cuts `gnome-51`, change `track: master` → `track: gnome-51` in `elements/gnome-build-meta.bst`
-- Published tag: `:gnome-51-testing` (separate from `:testing` which is `main`)
+- Published tags: `:next` + `:btw` (alias) (separate from `:testing` which is `main`)
 - Weekly promotion does NOT apply to `gnome-51` — kept separate from `:stable`
 
 **CI differences from main:**
 - `build.yml` fires on `pull_request`/`merge_group` against `gnome-51` branch
 - Cache key is branch-scoped: `bst-show-gnome-51-${{ hashFiles(...) }}` — prevents collision with `main` junctions
-- `publish.yml` computes `testing_tag` dynamically: `gnome-51` → `:gnome-51-testing`
+- `publish.yml` computes `testing_tag` dynamically: `gnome-51` → `:next` (+ `:btw` alias)
 - The `testing` branch fast-forward is skipped for non-`main` branches
 - Separate concurrency group: `publish-gnome-51`
 

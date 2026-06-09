@@ -1,12 +1,12 @@
 name: Sync next branch from main
 
-# Keeps gnome-51 up to date with all non-junction changes from main:
+# Keeps next up to date with all non-junction changes from main:
 # Renovate action pins, BST source bumps for Tailscale/fonts/etc., CI fixes.
 #
 # Strategy: git merge -X ours
-#   - All non-conflicting main changes land on gnome-51 automatically.
+#   - All non-conflicting main changes land on next automatically.
 #   - Conflicts (only expected in junction ref files) resolve in favour of
-#     gnome-51 — keeping the gnome-build-meta master ref intact.
+#     next — keeping the gnome-build-meta master ref intact.
 #
 # If the merge fails (e.g. structural conflict beyond junction files), the
 # workflow fails visibly — no silent corruption.
@@ -23,24 +23,24 @@ jobs:
   sync-next:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout gnome-51
+      - name: Checkout next
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          ref: gnome-51
+          ref: next
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Merge main into gnome-51 (keep junction refs)
+      - name: Merge main into next (keep junction refs)
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git fetch origin main
-          # -X ours: on conflict keep gnome-51's version (protects junction refs).
+          # -X ours: on conflict keep next's version (protects junction refs).
           # --no-edit: use the default merge commit message.
           if git merge origin/main -X ours --no-edit; then
-            git push origin gnome-51
-            echo "Synced main → gnome-51"
+            git push origin next
+            echo "Synced main → next"
           else
             echo "ERROR: merge conflict beyond junction files — manual intervention required"
             git merge --abort

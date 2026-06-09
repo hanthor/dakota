@@ -13,14 +13,14 @@ env:
   BST2_IMAGE: registry.gitlab.com/freedesktop-sdk/infrastructure/freedesktop-sdk-docker-images/bst2:64eb0b4930d57a92710822898fb73af6cc1ae35d
 
 jobs:
-  # ── Track core junctions for gnome-51 (next / btw stream) ─────────────────
+  # ── Track core junctions for next (btw stream) ─────────────────
   # Bumps gnome-build-meta.bst (master) and freedesktop-sdk.bst atomically on
-  # the gnome-51 branch. Opens a PR against gnome-51 — no auto-merge, junction
+  # the next branch. Opens a PR against next — no auto-merge, junction
   # bumps require human review.
   #
-  # When gnome-build-meta cuts a gnome-51 branch upstream (~Sep 2026), change
-  # track: master → track: gnome-51 in elements/gnome-build-meta.bst.
-  track-core-junctions-gnome-51:
+  # When gnome-build-meta cuts a stable branch (e.g. gnome-51 ~Sep 2026), update
+  # track: master → track: gnome-51 in elements/gnome-build-meta.bst on next.
+  track-core-junctions-next:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -33,10 +33,10 @@ jobs:
           app-id: ${{ secrets.MERGERAPTOR_APP_ID }}
           private-key: ${{ secrets.MERGERAPTOR_PRIVATE_KEY }}
 
-      - name: Checkout gnome-51 branch
+      - name: Checkout next branch
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          ref: gnome-51
+          ref: next
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
@@ -53,7 +53,7 @@ jobs:
           just bst --no-interactive source track gnome-build-meta.bst
           just bst --no-interactive source track freedesktop-sdk.bst
 
-      - name: Create or update PR against gnome-51 (auto-merge)
+      - name: Create or update PR against next (auto-merge)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -62,23 +62,23 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git checkout -B auto/track-gnome51-junction origin/gnome-51
+          git checkout -B auto/track-next-junction origin/next
           git add elements/gnome-build-meta.bst elements/freedesktop-sdk.bst
-          git commit -m "chore(deps): update core junctions (gnome-51 branch)"
-          git push --force-with-lease origin auto/track-gnome51-junction
+          git commit -m "chore(deps): update core junctions (next branch)"
+          git push --force-with-lease origin auto/track-next-junction
 
-          EXISTING=$(gh pr list --head auto/track-gnome51-junction --json number --jq '.[0].number' 2>/dev/null || true)
+          EXISTING=$(gh pr list --head auto/track-next-junction --json number --jq '.[0].number' 2>/dev/null || true)
           if [ -n "$EXISTING" ]; then
             PR_NUMBER="$EXISTING"
             echo "Existing PR #${PR_NUMBER} — re-enabling auto-merge"
           else
             PR_BODY=$(printf '%s\n\n%s' \
-            "Bumps \`gnome-build-meta.bst\` (master) and \`freedesktop-sdk.bst\` atomically on the \`gnome-51\` branch. Auto-merges once \`bst show\` validation passes." \
-            "> **Note:** When gnome-build-meta cuts a \`gnome-51\` branch, change \`track: master\` to \`track: gnome-51\` in \`elements/gnome-build-meta.bst\` on this branch.")
+            "Bumps \`gnome-build-meta.bst\` (master) and \`freedesktop-sdk.bst\` atomically on the \`next\` branch. Auto-merges once \`bst show\` validation passes." \
+            "> **Note:** When gnome-build-meta cuts a stable branch (e.g. \`gnome-51\`), update \`track: master\` → \`track: <branch>\` in \`elements/gnome-build-meta.bst\` on \`next\`. No CI changes needed.")
           PR_NUMBER=$(gh pr create \
-            --base gnome-51 \
-            --head auto/track-gnome51-junction \
-            --title "chore(deps): update core junctions (gnome-51 branch)" \
+            --base next \
+            --head auto/track-next-junction \
+            --title "chore(deps): update core junctions (next branch)" \
             --body "$PR_BODY" \
             --json number --jq '.number')
             echo "Created PR #${PR_NUMBER}"

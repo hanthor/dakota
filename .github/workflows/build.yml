@@ -2,9 +2,9 @@ name: Build Bluefin dakota
 
 on:
   pull_request:
-    branches: [main, gnome-51]
+    branches: [main, next]
   merge_group:
-    branches: [main, gnome-51]
+    branches: [main, next]
   workflow_dispatch:
     # WARNING: Do not manually dispatch immediately after auto/track-* ref bumps
     # (e.g. Renovate PRs updating gnome-build-meta.bst). Cold builds of GNOME
@@ -54,7 +54,7 @@ jobs:
 
       # Cache the BST workspace (junction git sources + bst2 container layers).
       # Key includes junction element refs so junction bumps start fresh.
-      # Branch name is included to prevent gnome-51 (master) and main (gnome-50)
+      # Branch name is included to prevent next (master) and main (stable)
       # junction caches from colliding.
       # Without this, bst show must clone gnome-build-meta + freedesktop-sdk
       # from scratch on every PR run (~15-25 min extra).

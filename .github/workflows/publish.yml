@@ -8,8 +8,8 @@ on:
     branches:
       - main
       - 'gh-readonly-queue/main/**'
-      - gnome-51
-      - 'gh-readonly-queue/gnome-51/**'
+      - next
+      - 'gh-readonly-queue/next/**'
 
 env:
   IMAGE_NAME: dakota
@@ -23,7 +23,7 @@ permissions:
   actions: read
 
 concurrency:
-  # Separate publish queues per branch so gnome-51 and main don't collide.
+  # Separate publish queues per branch so next and main don't collide.
   group: publish-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: false
 
@@ -43,8 +43,8 @@ jobs:
        github.event.workflow_run.event != 'pull_request' &&
        (github.event.workflow_run.head_branch == 'main' ||
         startsWith(github.event.workflow_run.head_branch, 'gh-readonly-queue/main/') ||
-        github.event.workflow_run.head_branch == 'gnome-51' ||
-        startsWith(github.event.workflow_run.head_branch, 'gh-readonly-queue/gnome-51/')))
+        github.event.workflow_run.head_branch == 'next' ||
+        startsWith(github.event.workflow_run.head_branch, 'gh-readonly-queue/next/')))
     steps:
       - name: Resolve build SHA and trigger event
         id: context
@@ -61,10 +61,10 @@ jobs:
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
           # Derive the :testing tag from the branch name.
           # main     → :testing  (stable dev stream)
-          # gnome-51 → :next     (rolling GNOME master / bleeding edge)
+          # next     → :next     (rolling GNOME master / bleeding edge)
           if [[ "$BRANCH" == "main" || "$BRANCH" == gh-readonly-queue/main/* ]]; then
             echo "testing_tag=testing" >> "$GITHUB_OUTPUT"
-          elif [[ "$BRANCH" == "gnome-51" || "$BRANCH" == gh-readonly-queue/gnome-51/* ]]; then
+          elif [[ "$BRANCH" == "next" || "$BRANCH" == gh-readonly-queue/next/* ]]; then
             echo "testing_tag=next" >> "$GITHUB_OUTPUT"
           else
             # Fallback for any future branches: strip merge-queue prefix
@@ -288,7 +288,7 @@ jobs:
           done
           $PUSH_OK || { echo "ERROR: all push attempts failed for :${TESTING_TAG}"; exit 1; }
 
-      - name: Push :btw alias (gnome-51 / next stream only)
+      - name: Push :btw alias (next stream only)
         if: needs.setup.outputs.testing_tag == 'next'
         env:
           BUILD_SHA: ${{ needs.setup.outputs.sha }}

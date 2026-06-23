@@ -58,38 +58,59 @@ Successful publish.yml
   └─ publish-smoke.yml
        └─ smoke suite [observational only]
 
-push: testing / nightly / manual
+push: testing / weekly Tuesday 04:00 UTC / manual
   └─ promote-testing-to-main.yml
        └─ opens or updates promotion PR
             └─ pr-release-gate.yml on that PR
 
 merge promotion PR to main
   └─ execute-release.yml
-       └─ stable tag copy + release notes
+       ├─ stable tag copy + release notes
+       └─ create-multiarch-stable [continue-on-error, ARM never blocks]
+
+push: testing/main (BST paths) / Tuesday 04:00 UTC / manual   ← PARALLEL, DECOUPLED
+  └─ build-aarch64.yml [continue-on-error throughout]
+       └─ :aarch64 and :aarch64-<sha> published to GHCR
+          (no effect on x86_64 builds, publish, promote, or release)
 ```
 
 ## Workflow Ownership Table
 
 | Workflow | Owns | Normal trigger |
 |---|---|---|
-| `.github/workflows/build.yml` | BST build into remote CAS | `merge_group`, `workflow_dispatch` |
+| `.github/workflows/build.yml` | BST build into remote CAS | `push: main/next/testing` (paths-ignore: docs, workflows, md), `merge_group`, `workflow_dispatch`. `validate` job runs on `pull_request` only; `build` job skips `pull_request`. |
+| `.github/workflows/build-aarch64.yml` | aarch64 OCI build + GHCR push | `push: main/testing` (same paths-ignore as build.yml), `schedule: Tuesday 04:00 UTC`, `workflow_dispatch`. Fully decoupled — never in `needs:` of publish/promote/release. |
 | `.github/workflows/publish.yml` | export, sign, boot-check, promote tags | `workflow_run` from build |
 | `.github/workflows/publish-smoke.yml` | observational smoke only | `workflow_run` from publish |
 | `.github/workflows/e2e.yml` | PR-facing testsuite check | `pull_request` |
 | `.github/workflows/promote-testing-to-main.yml` | open/update promotion PR | `push: testing`, schedule, manual |
 | `.github/workflows/pr-release-gate.yml` | promotion PR gate | `pull_request` to `main` |
-| `.github/workflows/execute-release.yml` | stable release execution | `push: main`, manual |
+| `.github/workflows/execute-release.yml` | stable release execution | `push: main`, `workflow_dispatch`. `check-trigger` job gates on commit message matching `^ci\(promote\): dakota testing` or `^chore: promote testing to main`; `workflow_dispatch` bypasses the gate. |
 | `.github/workflows/sync-next-from-main.yml` | merge main into next (preserve junction refs) | `push: main`, `workflow_dispatch` |
 
 ## Branch / Tag Map
 
-| Branch | Result |
-|---|---|
-| `main` | merged changes build, publish `:$sha`, then promote to `:testing` |
-| `testing` | source branch for promotion PRs into `main` |
-| `next` | rolling GNOME master stream; publish to `:next` and `:btw`, never stable. No PR requirement on branch protection (dev stream, direct push from `sync-next-from-main` is intentional) |
-| `gh-readonly-queue/main/*` | merge-queue build path for `main` |
-| `gh-readonly-queue/next/*` | merge-queue build path for `next` |
+| Branch | Trigger | Published tag(s) | Notes |
+|---|---|---|---|
+| `testing` | `push` (BST-affecting paths only) | `:testing` | **Primary `:testing` publish path.** Every BST-affecting push builds → publishes → promotes. Doc/workflow-only pushes are ignored (paths-ignore). |
+| `main` | merge of promotion PR | `:latest`, `:stable` | Only via `execute-release.yml` and only when commit message starts with `ci: promote testing images to stable`. Normal merges do NOT produce a new tag. |
+| `next` | `push` or `sync-next-from-main` dispatch | `:next`, `:btw` | Rolling GNOME master; never stable. No PR requirement on branch protection. |
+| `gh-readonly-queue/main/*` | merge-queue | (build only, no tag) | Gate before merge to `main`. |
+| `gh-readonly-queue/next/*` | merge-queue | (build only, no tag) | Gate before merge to `next`. |
+| `testing` or `main` (BST paths) | `push`, Tuesday schedule, dispatch | `:aarch64`, `:aarch64-<sha>` | Published by `build-aarch64.yml`. Completely decoupled from x86_64 flow. Never blocks release. |
+
+**What testing does (not just PRs):**
+```
+push to testing (BST-affecting)
+  → build.yml (build job)
+  → publish.yml (workflow_run)
+      → :testing tag published to GHCR
+  → promote-testing-to-main.yml
+      → opens/updates auto/promote-testing-to-main PR
+           → pr-release-gate.yml gates it
+           → auto-merge → push to main
+               → execute-release.yml → :stable / :latest
+```
 
 ## Common Rationalizations
 

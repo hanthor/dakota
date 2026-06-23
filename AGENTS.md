@@ -4,6 +4,11 @@ Dakota is a [BuildStream 2](https://buildstream.build/) project producing **Dako
 
 Load **[docs/SKILL.md](docs/SKILL.md)** for the full reference skill tree. Only load docs relevant to your task.
 
+> **Before using any tool or library: look up its docs via Context7 first. Always.**
+> BuildStream, bootc, cosign, skopeo, GitHub Actions — every tool has live, authoritative docs.
+> Pattern: `resolve-library-id` → `get-library-docs` → implement → cite the section.
+> Guessing, flag-hunting, and trial-and-error are banned. The docs exist. Read them.
+
 ## Org pipeline — projectbluefin
 
 ### Repo map
@@ -12,9 +17,9 @@ Load **[docs/SKILL.md](docs/SKILL.md)** for the full reference skill tree. Only 
 common ──────────────────────────┐
 (shared OCI layer)               │
                                  ▼
-bluefin  (main→stable)       ←── images ──→ testsuite (e2e gate)
-bluefin-lts (main→lts)       ←── images ──→ testsuite (e2e gate)
-dakota  (main→testing→latest/stable) ←── images ──→ testsuite (e2e gate)
+bluefin  (testing→main→:stable)       ←── images ──→ testsuite (e2e gate)
+bluefin-lts (main→:lts, migrating to testing-first)  ←── images ──→ testsuite (e2e gate)
+dakota  (testing→main→:stable)        ←── images ──→ testsuite (e2e gate)
 dakota  (next→:next/:btw, rolling nightly, no stable promotion)
                                  │
                                  ▼
@@ -25,7 +30,8 @@ Each image repo pulls `ghcr.io/projectbluefin/common:latest` as a base layer.
 testsuite gates `:testing` promotion nightly and `:latest`/`:stable` promotion weekly.
 
 **Dakota image streams:**
-- `:testing` / `:latest` / `:stable` — `main` branch, GNOME 50 stable, e2e-gated weekly promotion
+- `:testing` — `testing` branch, publishes on every BST-changing push (GHA-only changes filtered)
+- `:latest` / `:stable` — `main` branch, promoted from `testing` weekly via e2e-gated squash PR
 - `:next` / `:btw` — `next` branch, GNOME 51 master, fully automated rolling nightly, **no promotion to stable ever**
 
 **`elements/bluefin/common.bst` strips bluefin-only content from common.** Any file added to `common/system_files/shared/` that does not apply to a fresh dakota install must be explicitly `rm -f`'d in the `install-commands` block of that element. Current stripped files: `rechunker-group-fix` script, service, and preset (chunka migration aid — not needed on fresh dakota).
@@ -134,7 +140,9 @@ Examples of what "check the docs" means in practice:
 
 **Operator accountability:** The human deploying the agent is responsible for all decisions. PR template checkbox: `[ ] I am using an agent and I take responsibility for this PR`
 
-**Verification:** Every PR must confirm `just lint` passed and the image booted. Use `just boot-test` for automated pass/fail. No WIP PRs.
+**Verification:** Every PR must confirm `just lint` passed and the image booted. Use `just boot-test` for automated pass/fail. No WIP PRs. After pushing, verify CI is green before claiming done: `gh run list --repo projectbluefin/dakota --limit 5` — read the output; running or failing = not done. "Done" means CI green, not "I pushed."
+
+**Never claim a task complete without verifying.** "I've updated the file" is not done. Run the checks. Read the output.
 
 **Pre-commit guard:** `no-floating-action-tags` blocks third-party `@main`/`@v*` floating action tags at commit time. `projectbluefin/actions/` refs (`@v1`) are intentional managed tags and are exempted.
 
@@ -202,9 +210,7 @@ Do not request review without evidence. Before opening a PR for review:
 
 **Agents MUST NOT push directly to `main`.** All changes via PR from a feature branch. Branch protection enforces this.
 
-**Production promotion** (`weekly-testing-promotion.yml`) requires 2 distinct human approvals in the GitHub `production` Environment. No agent may trigger, approve, or bypass this gate. Admin bypasses are permanently logged in Environment deployment history.
-
-**Dakota promotion PR has no e2e gate by design.** `promote-testing-to-main.yml` passes `run_e2e: false` to `reusable-promote-squash.yml` — the promotion PR gets cosign verification only. The e2e quality gate is at the weekly-testing-promotion level (2 human approvals in the `production` Environment). Do not add `run_e2e: true` to the promote caller.
+**Dakota promotion PR has no e2e gate by design.** `promote-testing-to-main.yml` passes `run_e2e: false` to `reusable-promote-squash.yml` — the promotion PR gets cosign verification only. Do not add `run_e2e: true` to the promote caller. Promotion from `testing` to `main` is fully automated — no human approval required.
 
 **Promotion pipeline — cosign verify pattern:** When adding cosign verification to a promotion workflow, anchor the `--certificate-identity-regexp` with `^...$` and restrict it to the specific publishing workflow file and allowed ref patterns (e.g. `^https://github.com/<repo>/.github/workflows/publish\.yml@refs/heads/(main|gh-readonly-queue/main/.+)$`). An unanchored wildcard accepts signatures from any workflow in the repo.
 

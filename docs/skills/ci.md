@@ -30,12 +30,45 @@ Use this skill when the task mentions:
 - OCI image contents or layer assembly → `oci-layers.md`
 - Normal PR review → `pr-review.md`
 
+## ⚠️ Builder Discipline — Read Before Doing Anything
+
+**ONE BST build at a time. Always.**
+
+Before merging, pushing, or dispatching any workflow, run the mandatory pre-flight:
+
+```bash
+gh run list --repo projectbluefin/dakota --limit 30 \
+  --json databaseId,status,name,headBranch \
+  | python3 -c "
+import json, sys
+runs = json.load(sys.stdin)
+active = [r for r in runs if r['status'] in ('in_progress', 'queued', 'pending', 'waiting')]
+if active:
+    print(f'BLOCKED: {len(active)} active run(s). Cancel all before proceeding:')
+    for r in active:
+        print(f'  gh run cancel {r[\"databaseId\"]} --repo projectbluefin/dakota  # {r[\"name\"]} [{r[\"headBranch\"]}]')
+else:
+    print('OK: field is clear')
+"
+```
+
+If output is not `OK: field is clear` — **cancel every listed run first**.
+
+**Cache-warm is not exempt.** It shares the same `ubuntu-24.04` runner pool and CAS write bandwidth as real builds. Two concurrent BST jobs do not halve wall time — they more than double it and risk 6-hour timeouts with zero elements cached.
+
+The rationalizations that have caused real production failures:
+- "Cache-warm is additive, it helps the build" → **No. Cancel it.**
+- "This is almost done, just a few minutes" → **Cancel it. You don't know that.**
+- "It's a different branch, it won't interfere" → **Same runners and CAS. Cancel it.**
+- "I cancelled one, that's enough" → **Cancel ALL. Re-run pre-flight.**
+
 ## Core Process
 
-1. **Classify the failure before reading logs.**
+1. **Run the mandatory pre-flight above. Verify `OK: field is clear`.**
+2. **Classify the failure before reading logs.**
    - *Which workflow?* `build`, `publish`, `promote`, `release`, `e2e`, `merge queue`
    - *Which phase?* trigger, setup, reusable workflow call, build/export, boot, smoke, promotion
-2. **Load one next skill, not five.**
+3. **Load one next skill, not five.**
    - Need workflow/trigger map → `workflow-map.md`
    - Need reusable workflow / permissions / cache-dir weirdness → `ci-tooling.md`
    - Need boot-check / smoke / testsuite behavior → `e2e-ci.md`
@@ -57,26 +90,33 @@ Use this skill when the task mentions:
 | conflicting chore PRs, stale queue branches | `merge-queue.md` |
 | historical edge cases and deep cuts | `ci-reference.md` |
 
-## Common Rationalizations
+## Workflow Quick Reference
 
-| Rationalization | Reality |
-|---|---|
-| `.github/workflows/build.yml` | BST build + push artifacts to remote CAS. Fires on `merge_group` and `workflow_dispatch` only (no schedule). Does NOT push to GHCR directly. |
-| `.github/workflows/publish.yml` | 3-stage pipeline: setup → publish → promote. Pulls artifact from CAS, exports OCI, pushes `:$sha`, signs, attests, then immediately promotes to `:testing` on every successful merge. No e2e gate — that lives only in the weekly promotion. |
-| `.github/workflows/promote-testing-to-main.yml` | Thin caller for `reusable-promote.yml` in `projectbluefin/actions`. Fires on `push: testing`, nightly schedule (23:00 UTC), and `workflow_dispatch`. Opens or updates the promotion PR that gates `:testing` → `:stable`. |
-| `.github/workflows/execute-release.yml` | Fires on `push: main` + `workflow_dispatch`. A `check-trigger` job reads the squash-merge commit message — only proceeds when it starts with `ci: promote testing images to stable`. Calls `reusable-execute-release.yml` (copies image tags) then `reusable-release.yml` (generates GitHub Release + SBOM diff). |
-| `.github/workflows/e2e.yml` | Smoke test via projectbluefin/testsuite. Fires on PR; `should-run` job skips the test when no image-affecting paths changed. |
-| `.github/workflows/vulnerability-scan.yml` | Weekly Monday 08:00 UTC CVE scan via `reusable-vulnerability-scan.yml`. Also available as `workflow_dispatch` with optional `image_ref` input. Results surface in the GitHub Security tab. |
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `build.yml` | `push: main/next/testing` (paths-ignore: docs/workflows/md), `merge_group`, `workflow_dispatch` — NOT `pull_request` | BST build → artifacts into remote CAS. Does NOT push to GHCR. `validate` job runs on `pull_request` only; `build` job runs on everything else. |
+| `publish.yml` | `workflow_run` from `build.yml` (branches: main, next, testing, + their gh-readonly-queue/* paths) | Export from CAS → push `:$sha` → sign/attest → promote to `:testing`/`:next`. No build happens here. |
+| `promote-testing-to-main.yml` | `push: testing`, `schedule: Tue 04:00 UTC`, `workflow_dispatch` | Opens/updates promotion PR from testing into main. |
+| `pr-release-gate.yml` | `pull_request` to `main` | Gates the promotion PR via cosign verify of `:testing`. |
+| `execute-release.yml` | `push: main`, `workflow_dispatch` | `check-trigger` job gates on commit message matching `^ci\(promote\): dakota testing` or `^chore: promote testing to main`. `workflow_dispatch` bypasses the gate. Copies `:testing` → `:stable`/`:latest`, creates GitHub Release. |
+| `cache-warm.yml` | `schedule: Mon/Thu 06:00 UTC`, `workflow_dispatch` | Pre-warms remote CAS. Two parallel jobs (x86_64, aarch64), `continue-on-error: true`. **Not exempt from pre-flight — cancel before any real build.** |
 
 ## Trigger Behavior
 
-| Behavior | pull_request | merge_group | workflow_dispatch | schedule |
-|---|---|---|---|---|
-| `validate` job | Yes | No | No | No |
-| `e2e` job | Yes (change-detected) | No | Yes | No |
-| `build` job | No | Yes | Yes | No |
-| `cache-warm` job | No | No | Yes | Yes (Mon/Thu 06:00 UTC) |
-| Push to GHCR? | No | Via publish.yml | Via publish.yml | No |
+| Job | pull_request | push main/next/testing | merge_group | workflow_dispatch | schedule |
+|---|---|---|---|---|---|
+| `validate` | Yes | No | No | No | No |
+| `e2e` | Yes (change-detected) | No | No | Yes | No |
+| `build` | No | Yes (paths-ignore) | Yes | Yes | No |
+| `cache-warm` | No | No | No | Yes | Mon/Thu 06:00 UTC |
+| Push to GHCR? | No | Via publish.yml | Via publish.yml | Via publish.yml | No |
+
+**push paths-ignore:** `.github/workflows/**`, `docs/**`, `**.md`, `AGENTS.md` — doc/workflow-only pushes do NOT trigger a build. This is intentional; it means a CI-only commit advancing the branch HEAD will leave no build artifact for that SHA.
+
+**Branch → tag mapping** (verified from publish.yml source):
+- `main` or `gh-readonly-queue/main/*` → `:testing`
+- `testing` or `gh-readonly-queue/testing/*` → `:testing`
+- `next` or `gh-readonly-queue/next/*` → `:next`
 
 **PR path:** `validate` + `e2e` (change-detected) — zero remote execution. ~15 min cached, ~30 min cold.
 
@@ -84,7 +124,7 @@ Use this skill when the task mentions:
 
 **Merge queue path:** `build` fires on `merge_group` — full OCI build, real CI gate before merge.
 
-**Cache-warm path:** `cache-warm.yml` runs Monday and Thursday at 06:00 UTC and on manual dispatch. Builds the default variant against the remote CAS so merge-queue builds land on cache hits even after junction ref bumps or upstream `gnome-build-meta` rebuilds. Failures are non-blocking — the warm build is best-effort. Addresses the cold-start non-determinism documented in [common automation-audit ND1](https://github.com/projectbluefin/common/blob/main/docs/factory/automation-audit/non-deterministic-steps.md).
+**Cache-warm path:** `cache-warm.yml` runs Monday and Thursday at 06:00 UTC and on manual dispatch. Two parallel jobs — `warm-cache` (x86_64) and `warm-cache-aarch64` — run independently with no `needs:` dependency between them. Each has its own concurrency group (`dakota-cache-warm` and `dakota-cache-warm-aarch64`) so they never serialise. Both use `continue-on-error: true` and failures are non-blocking — best-effort. Addresses the cold-start non-determinism documented in [common automation-audit ND1](https://github.com/projectbluefin/common/blob/main/docs/factory/automation-audit/non-deterministic-steps.md).
 
 ## Remote Cache Architecture
 
@@ -212,6 +252,24 @@ gh run list --repo projectbluefin/dakota --limit 5
 | `update-refs.md` | Understanding the source tracking workflow |
 
 ## Lessons Learned
+
+### ARM warm-cache must be a parallel job with its own concurrency group (2026-06-22)
+
+The `cache-warm.yml` originally had only an x86_64 job. Adding ARM as a second
+step inside the same job would serialise the two architectures and block x86 on
+ARM failures. The correct pattern:
+
+- Add a **second top-level job** (`warm-cache-aarch64`) — no `needs:` dependency.
+- Use a **separate `concurrency.group`** (`dakota-cache-warm-aarch64`) so the two
+  jobs never queue behind each other.
+- Set `continue-on-error: true` on the ARM job — ARM failures never block x86.
+- Use `BST_FLAGS: --no-interactive --config /src/buildstream-ci.conf --option arch aarch64`
+  — the `--config` flag is required for the generated BST CI config (and the
+  remote CAS push) to actually take effect.
+- Use `enable-remote-execution: false`, `enable-push: true` — no RE service for
+  ARM yet, but artifacts should still be pushed to the remote CAS.
+- Use a distinct BST workspace cache key: `bst-warm-aarch64-${{ hashFiles(...) }}`
+  — sharing a key with x86 will cause cross-arch cache pollution.
 
 ### crun 1.21 (resolute) breaks just sbom on GHA — use --runtime runc (2026-06-08)
 
@@ -2002,3 +2060,158 @@ gh pr view <n> --repo projectbluefin/dakota --json autoMergeRequest \
 ```
 If `false`, the `gh pr merge --auto` call failed — check the workflow's declared
 `permissions` first.
+
+### testing branch is independent — no fast-forward from main (2026-06-21)
+
+`testing` is an independent branch, identical to bluefin/bluefin-lts. It does NOT get
+fast-forwarded from `main`. BST-changing merges to `testing` trigger their own build
+and `:testing` publish. GHA-only merges (Renovate workflow pins) are filtered out.
+
+**Push trigger paths-ignore** in `build.yml`:
+```yaml
+push:
+  branches: [main, next, testing]
+  paths-ignore:
+    - '.github/workflows/**'   # workflows don't affect the image
+    # .github/actions/** intentionally NOT ignored — local composite actions are used in build
+    - 'docs/**'
+    - '**.md'
+    - 'AGENTS.md'
+```
+
+**Flow:**
+```text
+BST PR → testing → build → :testing published
+GHA-only PR → testing → filtered, no build
+promote PR: testing → main → build → stable
+```
+
+The previous `Fast-forward testing branch` step in `publish.yml` was disabled (`if: false`)
+in PR 1004. It caused a redundant 5h rebuild: main build → fast-forward testing → push
+to testing → second full rebuild of identical content. Fix: PR 997 removed testing from
+push triggers entirely (broke :testing publishing); PR 1004 restored push trigger with
+paths-ignore and removed the fast-forward instead.
+
+### sync-main-to-testing.yml is required — do not remove it
+
+After a `testing → main` promotion squash merge, the squash commit lands on `main`
+but not in `testing`. `sync-main-to-testing.yml` merges main back into testing so
+the next promotion PR is not blocked by a diverged history.
+
+This is **not** the same as the removed publish.yml fast-forward step (which
+caused double builds on every main push). The sync only fires on push to `main`
+and handles a structural necessity of the squash-merge promotion model.
+
+### Rapid-fire PR merges cancel pending builds
+
+GitHub Actions concurrency with `cancel-in-progress: false` prevents in-progress
+jobs from being cancelled, but **pending** (queued) jobs are replaced when a new
+push arrives for the same concurrency group. Merging many PRs in quick succession
+results in all but the last build being cancelled.
+
+**Symptom:** All recent builds on a branch show `cancelled` status.
+
+**Fix:** Trigger manually after the queue settles:
+```bash
+gh workflow run build.yml --ref main        # or --ref testing
+```
+Always check for cancelled builds after batch-merging PRs.
+
+### PR triage gate — testing-first model
+
+The `pr-triage.yml` gate enforces branch targets. In the testing-first model:
+- PRs targeting `testing` → allowed (all content PRs)
+- PRs targeting `next` → allowed (GNOME master stream)
+- PRs targeting anything else (stable, latest) → blocked
+
+If the gate is only allowing `renovate/*` branches to target testing (old state),
+update it to allow all branches targeting testing. See PR 1009.
+
+### Renovate must not manage projectbluefin/* — one exclusion rule covers all (2026-06-21)
+
+All `projectbluefin/*` actions (`projectbluefin/actions`, `projectbluefin/testsuite`,
+`projectbluefin/bonedigger`) use org-managed tags (`@v1`, `@main`). Renovate must
+not generate SHA-bump or pin-digest PRs for any of them.
+
+**Pattern that caused churn:** `pinDigests: true` applied globally, then a group rule
+for `projectbluefin/actions` that didn't set `pinDigests: false`. Renovate generated
+paired PRs every actions release:
+- "update projectbluefin/actions" — SHA bump
+- "pin dependencies" — re-pins things that got unpinned
+
+**Correct renovate.json5:**
+```json5
+{
+  "matchDepNames": ["/^projectbluefin\\//"],
+  "enabled": false,
+  "pinDigests": false
+}
+```
+One rule. Replaces all per-package exemptions (`bonedigger`, `actions`, etc.).
+
+### Renovate automerge label must be in the general rule (2026-06-21)
+
+The `renovate-automerge.yml` workflow uses the `automerge` label as its signal.
+The general automerge rule must include labels or Renovate digest/patch PRs stall
+with no auto-merge trigger:
+
+```json5
+{
+  "matchUpdateTypes": ["digest", "pin", "patch", "minor"],
+  "automerge": true,
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "labels": ["chore/deps", "automerge"]
+}
+```
+
+Without this, only PRs created by per-package group rules (that explicitly set labels)
+get the `automerge` label. Everything else opens with `pr/needs-review` only and stalls.
+
+### update-iso-table.yml removed — [skip ci] churn (2026-06-21)
+
+`update-iso-table.yml` ran every 6 hours and committed docs to `main` with `[skip ci]`.
+Even with `[skip ci]`, the commits touched `main` and caused noise. Removed.
+
+If ISO table needs updating in future, do it on demand via `workflow_dispatch` or
+move it to the dakota-iso repo where it naturally belongs.
+
+### testing branch must have required check for auto-merge to work (2026-06-21)
+
+`gh pr merge --auto` requires the target branch to have at least one required
+status check or required review. `testing` had no protection — `--auto` silently
+failed with a warning, leaving approved PRs stuck indefinitely.
+
+**Fix:** add `validate` as a required check on `testing` via the API:
+
+```bash
+gh api repos/projectbluefin/dakota/branches/testing/protection \
+  -X PUT --input - << 'PROTECTION'
+{
+  "required_status_checks": {"strict": false, "contexts": ["validate"]},
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null,
+  "allow_force_pushes": true
+}
+PROTECTION
+```
+
+`allow_force_pushes: true` is required — the promote workflow force-pushes the squash branch.
+
+### pr-triage auto-merge must fall back to direct merge (2026-06-21)
+
+`--auto` can fail even on protected branches (race between approval and checks completing,
+or protection not yet propagated). The correct pattern in `on-pr-review`:
+
+```bash
+if gh pr merge "$PR_URL" --auto --squash 2>/dev/null; then
+  echo "auto-merge enabled"
+else
+  gh pr merge "$PR_URL" --squash 2>/dev/null \
+    && echo "merged directly" \
+    || echo "::warning::checks still running"
+fi
+```
+
+Without the fallback, approved PRs with already-green CI sit permanently unmerged.

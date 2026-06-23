@@ -92,6 +92,68 @@ Route through `ci.md` first, then come here only when the focused skills do not 
 
 **Push is conditional:** Remote cache section is only added to `buildstream-ci.conf` if **both** are set. Without credentials, BST builds from source using local disk cache only — slower but functional. This is normal for external contributors' forks.
 
+## ⚠️ Mandatory CI Pre-flight — run before every merge, push, or dispatch
+
+Before any action that could trigger a build, verify the field is clear:
+
+```bash
+gh run list --repo projectbluefin/dakota --limit 30 \
+  --json databaseId,status,name,headBranch \
+  | python3 -c "
+import json, sys
+runs = json.load(sys.stdin)
+active = [r for r in runs if r['status'] in ('in_progress', 'queued', 'pending', 'waiting')]
+if active:
+    print(f'BLOCKED: {len(active)} active run(s). Cancel all before proceeding:')
+    for r in active:
+        print(f'  gh run cancel {r[\"databaseId\"]} --repo projectbluefin/dakota  # {r[\"name\"]} [{r[\"headBranch\"]}]')
+else:
+    print('OK: field is clear, safe to proceed')
+"
+```
+
+If not `OK: field is clear` — cancel every listed run, re-run until clean. Cache-warm
+runs are not exempt. See Hard Rule #9 in `.github/copilot-instructions.md`.
+
+## ⚠️ aarch64 cache-warm: first run is always a cold miss (2026-06-22)
+
+The GHA `actions/cache` restore key for aarch64 is `bst-warm-aarch64-`. On the first
+ever warm run for a new aarch64 runner configuration, the cache entry does not exist
+and the restore step reports `Cache not found`. This is expected — not a bug.
+
+The build proceeds as a full cold build, populates the remote CAS
+(`cache.projectbluefin.io:11002`), and saves the GHA workspace cache under
+`bst-warm-aarch64-<hash>` on completion. All subsequent runs get a partial or full hit.
+
+**x86_64** uses `bst-warm-<hash>` (no arch prefix) and will get a restore-key hit from
+prior warm runs even when the exact hash differs.
+
+**Do not cancel or retrigger a cold aarch64 warm run.** Let it complete — the remote CAS
+population is the valuable output. Future merge-queue builds on aarch64 will benefit.
+
+## ⚠️ Dangling Submodule — cache-warm and scheduled workflows silently die (2026-06-22)
+
+**Symptom:** Every scheduled workflow that checks out `main` fails at "Checkout repository" with:
+```
+fatal: No url found for submodule path '.workflow-scripts' in .gitmodules
+```
+All downstream steps are skipped. cache-warm never runs. BST CAS goes cold. Every push-to-testing build times out at 330 min. `:testing` stops publishing. Agents blame the push trigger and remove it (PR #997, repeated).
+
+**Root cause:** A dangling gitlink (mode `160000`) was committed to the tree with no `.gitmodules` URL. `actions/checkout@v6` calls `git submodule foreach` for credential cleanup even with `submodules: false`, and dies on the missing URL. v7 handles it silently.
+
+**How it got in:** Promotion squash PR #937 (June 20) carried the gitlink from `testing` into `main`. Likely introduced by an agent that committed an empty directory containing a stale `.git` reference.
+
+**Fix:** `git rm -f .workflow-scripts` — no `.gitmodules` file was ever present, so nothing else to clean up.
+
+**Guard:** The `validate` job in `build.yml` now runs `git ls-files --stage | grep '^160000'` and fails the PR if any gitlink exists. This repo has no legitimate submodules.
+
+**If it recurs:**
+```bash
+git ls-files --stage | grep '^160000'   # find the gitlink
+git rm -f <path>                         # remove it
+git commit -m "fix(ci): remove dangling submodule <path>"
+```
+
 ## ⚠️ Pre-Commit BST Syntax Gate
 
 For any change to `project.conf`, `*.bst` elements, or `Justfile`:
@@ -173,14 +235,16 @@ PRs created by a workflow using `GITHUB_TOKEN` do NOT fire `pull_request` events
 
 ## Ruleset
 
-Ruleset: `main-review-required-with-renovate-bypass`
+Ruleset: `main-merge-queue-no-review` (id: 18008292)
 
 | Rule | Value |
 |---|---|
-| Required reviews | 1 approving review |
-| Required status checks | `validate` + `e2e` |
-| Merge queue | ALLGREEN, max_entries_to_build=1, check_response_timeout=120 min |
+| Required reviews | 0 (fully automated — no human approval) |
+| Required status checks | `validate` (strict) |
+| Merge queue | SQUASH, ALLGREEN, max_entries_to_build=2, timeout=120 min |
 | Bypass actors | OrganizationAdmin, Renovate, mergeraptor |
+
+**`action_required` on promotion PR checks is expected.** The org blocks `github-actions[bot]`-triggered `pull_request` workflow runs. `validate` and all other PR checks show `action_required` on every promotion PR — this is normal and not a failure. The merge queue fires `merge_group` events which bypass the bot approval policy and run `validate` cleanly.
 
 **e2e change detection:** `e2e` only tests PRs touching `elements/`, `files/`, `patches/`, `Justfile`, or `project.conf`. For all other paths (e.g. workflow pin bumps) the `e2e` job is skipped, which satisfies the required check. The `should-run` job uses `git diff` against the PR base — no `paths:` filter on the trigger.
 
@@ -1245,56 +1309,52 @@ SHAs. Prefer the version that uses managed tags internally — those age better.
 
 ## Testing→main promotion pipeline — full cycle and failure modes (2026-06-12)
 
-### How the cycle works (bluefin model)
+### How the cycle works
 
 ```
 Renovate PR → testing branch (automerges when build CI passes)
-    → push to testing → promote-testing-to-main fires
-    → squash PR: auto/promote-testing-to-main → main
+    → push to testing → build/publish updates :testing
+    → promote-testing-to-main updates auto/promote-testing-to-main → main
     → maintainer merges
     → execute-release fires (commit msg "ci: promote testing images to stable")
     → :testing retagged as :stable
-    → push to main → sync-main-to-testing fires
-    → main fast-forwarded into testing (testing == main again)
-    → next Renovate cycle begins
+    → next testing-first cycle begins
 ```
 
 ### Three invariants that must all hold
 
 1. **`baseBranchPatterns: ["testing"]`** in `renovate.json5` — Renovate must target
-   `testing`, not `main`. With `baseBranchPatterns: ["main"]`, `testing` is a dead
-   branch: nothing ever lands there, the promote workflow finds nothing to squash,
-   and `:stable` never updates.
+   `testing`, not `main`. With `baseBranchPatterns: ["main"]`, `testing` stops being
+   the source of truth for content changes and the testing-first promotion loop
+   starves.
 
-2. **`sync-main-to-testing.yml`** must exist — after each squash-merge promotion, the
-   squash commit lands on `main` but not `testing`. Without this workflow, `testing`
-   falls permanently behind `main`. The next promote run finds diverged trees (so
-   `sync_needed=true`), but the squash produces nothing staged → `git commit` exits 1.
+2. **Content PRs land on `testing`; `main` only receives promotion commits.** The
+   promotion workflow compares `testing` directly to `main`. Dakota does not rely on
+   a post-promotion `main → testing` fast-forward as part of the steady-state model.
 
 3. **`pr-triage.yml` must exempt `renovate/*` PRs targeting `testing`** — the triage
-   workflow blocks all PRs not targeting `main`. Without an exemption, Renovate PRs
-   to `testing` are immediately blocked and cannot automerge.
+   workflow must allow the bot flow that feeds `testing`, or Renovate stalls before
+   the promotion loop even starts.
 
 ### The empty-squash crash (known bug in reusable-promote-squash)
 
-When `testing` is behind `main` with no unique content:
+When the promotion workflow runs with no staged tree difference between `testing`
+and `main`:
 - `git merge --squash origin/testing` says "Already up to date"
 - Nothing is staged
 - `git commit` exits 1 → job fails with misleading error
 
 This is fixed by `projectbluefin/actions#218` (adds `git diff --cached --quiet` guard
-before `git commit`). In steady state (sync-main-to-testing present), this edge case
-doesn't occur because `testing == main` after each sync, and the next promote run gets
-`sync_needed=false` cleanly. The fix is defence-in-depth.
+before `git commit`). In steady state, a no-op promote run should exit cleanly rather
+than failing on an empty squash.
 
 ### Root cause of 2026-06-11/12 breakage
 
 PR #741 changed `baseBranchPatterns` from `["testing"]` to `["main"]` to work around
-the triage gate — but without also adding `sync-main-to-testing.yml` or exempting
-Renovate from the gate. After promotion #797 (June 10), the cycle broke permanently:
-- `testing` fell 20+ commits behind `main` (no sync workflow)
+the triage gate. That bypassed Dakota's testing-first feed:
 - Renovate stopped feeding `testing` (wrong base branch)
-- Promote workflow crashed nightly (empty squash)
+- the promotion loop stopped seeing fresh testing commits
+- no-op promote runs crashed on the empty-squash bug
 - `:stable` stopped updating
 
 **Fix: PR #822** (dakota) + **PR #218** (actions).
@@ -1472,7 +1532,7 @@ to timeout at 360 min. Daily warming caps the cold window at 1 day.
 
 ### Promotion PR: force-push dismisses approvals even when diff is unchanged (2026-06-13)
 
-When `main` advances (e.g. Renovate merges) while a promotion PR has a
+When `testing` advances (e.g. Renovate merges) while a promotion PR has a
 maintainer approval, the promote workflow was rebuilding the squash branch
 and force-pushing — even though the effective diff against `main` was
 identical. GitHub dismisses approvals on **any** force-push regardless of
@@ -1690,26 +1750,30 @@ device attached while QEMU holds the file open is a resource leak.
 Mount p2 to read BLS entries (it is the EFI partition, not a separate `/boot`).
 Mount p3 to find the ostree deployment directory.
 
-### `testing` branch divergence breaks `Sync main → testing` permanently (2026-06-14)
+### Legacy `Sync main → testing` divergence failure (historical runs only) (2026-06-14)
 
-`reusable-sync-branches.yml` uses `git merge`. When `testing` has commits
-`main` doesn't (diverged), the merge exits 1 and **every subsequent push to
-`main` re-triggers the same failure** — the pipeline is stuck until a human
-manually resets `testing`.
+Dakota's testing-first model no longer treats `sync-main-to-testing` as an active
+pipeline requirement. If you are reading old workflow runs that still used the
+legacy branch-sync path, this was the failure mode:
 
-**How divergence happens:** Renovate PRs land on `testing` (digest bumps) while
-human PRs land on `main` touching the same files (`publish.yml`, `Justfile`).
-The two branches accumulate incompatible histories on the same paths.
+`reusable-sync-branches.yml` used `git merge`. When `testing` had commits that
+`main` did not, the merge exited 1 and every subsequent push to `main` retriggered
+the same failure until a human reset `testing`.
 
-**Emergency reset (API — no local clone needed):**
+**How divergence happened in that legacy model:** content PRs and Renovate both fed
+`testing`, while `main` only moved via promotion commits. A blind `main → testing`
+merge could not recover once histories diverged on the same paths.
+
+**Emergency reset used on those historical runs:**
 ```bash
 MAIN_SHA=$(gh api repos/projectbluefin/dakota/branches/main --jq '.commit.sha')
 gh api repos/projectbluefin/dakota/git/refs/heads/testing \
   -X PATCH --field sha="$MAIN_SHA" --field force=true
 ```
 
-**Systemic fix:** `projectbluefin/actions` PR #237 adds divergence detection to
-`reusable-sync-branches.yml`. When `ahead > 0`, force-reset instead of merge:
+**Systemic fix from that incident:** `projectbluefin/actions` PR #237 added
+`ahead > 0` detection to `reusable-sync-branches.yml` so legacy branch-sync users
+could force-reset instead of merge:
 ```bash
 AHEAD=$(git rev-list --count "origin/main..origin/testing")
 if [ "$AHEAD" -gt 0 ]; then
@@ -1718,9 +1782,10 @@ else
   git merge origin/main ...
 fi
 ```
-Safe: all testing-only commits are Renovate digests that Renovate recreates automatically.
+Safe in that legacy setup because testing-only commits were Renovate digests that
+Renovate recreated automatically.
 
-**Diagnosis commands:**
+**Diagnosis commands for old runs only:**
 ```bash
 # Check branch status
 gh api repos/projectbluefin/dakota/compare/testing...main \
@@ -1740,8 +1805,8 @@ PRs sat approved indefinitely.
 **Fixed in PR #858:**
 1. After approval: `gh pr merge "$PR_URL" --auto --squash`
 2. After approval: `gh pr update-branch "$PR_URL"` (brings branch current so CI runs)
-3. New `pr-autoupdate.yml` fires on every push to `main`, calls `gh pr update-branch`
-   on all `BEHIND` PRs targeting main (skips Renovate/Mergeraptor bots)
+3. New `pr-autoupdate.yml` fires on every push to `testing`, calls `gh pr update-branch`
+   on all `BEHIND` PRs targeting testing (skips Renovate/Mergeraptor bots)
 
 **Also required:** `validate` must be in branch protection required status checks
 so `--auto` waits for CI before merging, not just for review approval.
@@ -1755,8 +1820,8 @@ gh api repos/projectbluefin/dakota/branches/main/protection \
   "required_status_checks": {"strict": false, "checks": [{"context": "validate", "app_id": -1}]},
   "enforce_admins": false,
   "required_pull_request_reviews": {
-    "dismiss_stale_reviews": true, "require_code_owner_reviews": true,
-    "required_approving_review_count": 1
+    "dismiss_stale_reviews": false, "require_code_owner_reviews": false,
+    "required_approving_review_count": 0
   },
   "restrictions": null
 }
@@ -1832,3 +1897,25 @@ a synchronous kernel scan — nodes are ready immediately.
 **Note:** The boot-check gate never passed from PR #849 (2026-06-13) through
 PR #895 (2026-06-16) due to iterating on the wrong approach. The fix was
 always to use `--via-loopback` as documented. The image works on real hardware.
+
+### sync-main-to-testing fails: `validate` required status check blocks direct push (2026-06-21)
+
+**Symptom:** `Sync main → testing` workflow fails with:
+```
+remote: error: GH006: Protected branch update failed for refs/heads/testing.
+remote: - Required status check "validate" is expected.
+```
+
+**Root cause:** The `validate` job in `build.yml` only runs on `pull_request` events. A direct push from the sync workflow never triggers it, so the required status check can never be satisfied — GITHUB_TOKEN is always rejected.
+
+**Fix:** Remove `validate` from `testing` branch required status checks:
+```bash
+gh api /repos/projectbluefin/dakota/branches/testing/protection/required_status_checks \
+  -X PATCH --input - <<'PAYLOAD'
+{"strict": false, "contexts": []}
+PAYLOAD
+```
+
+**Why this is safe:** `testing` is a loose integration branch — not a stability gate. PRs to testing still trigger the `validate` job (visible as an informational PR check), but without a required status check, `gh pr merge --auto` fails and pr-triage falls back to a direct squash merge immediately. PRs merge to testing without waiting for CI. The real quality gate is at `main` where `validate` IS required (via merge queue). Removing `validate` from `testing` branch protection trades PR-time CI enforcement on the integration branch for a working automated sync.
+
+**Do NOT add PATs or tokens to the sync workflow — banned.** Fix is always at the branch protection level.

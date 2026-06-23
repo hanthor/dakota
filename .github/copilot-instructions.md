@@ -133,6 +133,50 @@ Every PR must include an update to the relevant `docs/skills/` file (per AGENTS.
 
 `task_complete` without the skill contribution is incomplete.
 
+### 9. Mandatory CI pre-flight — run this before every CI action, no exceptions
+
+**Before merging any PR, pushing to any branch, or dispatching any workflow**, run the
+pre-flight check and verify the output shows zero active runs. This is not optional.
+There is no exception. There is no rationalization that makes skipping this correct.
+
+```bash
+# MANDATORY PRE-FLIGHT — run before every CI action
+gh run list --repo projectbluefin/dakota --limit 30 \
+  --json databaseId,status,name,headBranch \
+  | python3 -c "
+import json, sys
+runs = json.load(sys.stdin)
+active = [r for r in runs if r['status'] in ('in_progress', 'queued', 'pending', 'waiting')]
+if active:
+    print(f'BLOCKED: {len(active)} active run(s). Cancel all before proceeding:')
+    for r in active:
+        print(f'  gh run cancel {r[\"databaseId\"]} --repo projectbluefin/dakota  # {r[\"name\"]} [{r[\"headBranch\"]}]')
+else:
+    print('OK: field is clear, safe to proceed')
+"
+```
+
+If the output is not `OK: field is clear` — **stop**. Cancel every listed run, then
+re-run the pre-flight until it is clean. Only then proceed.
+
+**What counts as an active run that must be cancelled:**
+- Any `Build Bluefin dakota` run — regardless of branch, age, or how long it has run
+- Any `Warm BuildStream Cache` run — **cache-warm is not exempt, ever**
+- Any `Publish Bluefin dakota` run in progress
+
+**The rationalizations that have caused real failures — all are wrong:**
+- "The cache-warm run is additive, it helps the new build" → **No. It starves both. Cancel it.**
+- "This build is almost done, just a few more minutes" → **Cancel it. You don't know that.**
+- "The stale build is for a different branch, it won't interfere" → **It uses the same runners and CAS. Cancel it.**
+- "I already cancelled one build, that's enough" → **Cancel ALL of them. Run the pre-flight again.**
+
+Concurrent BST builds share the same `ubuntu-24.04` runner pool and the same remote CAS
+write bandwidth at `cache.projectbluefin.io:11002`. Two concurrent builds do not halve
+wall time — they more than double it and risk 6-hour timeouts with
+`Cached elements after warm: 0`.
+
+**One build. Field clear first. No exceptions.**
+
 ## CI overview
 
 - **Schedule:** nightly at 13:00 UTC (after gnome-build-meta nightly ~08:00 UTC finish)

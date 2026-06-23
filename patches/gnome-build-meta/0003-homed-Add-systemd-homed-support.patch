@@ -37,7 +37,7 @@ index d207fb4..98f1d9c 100644
  - kind: git_repo
 -  url: gnome:gnome-initial-setup.git
 -  track: master
--  ref: 50.0-65-g4472cba3e9540f75fec272fd6d6d3acd90e00d1d
+-  ref: 50.0-66-g77be510de42c5b14c0967b6f61609990d0c2505b
 +  url: gnome_gitlab:AdrianVovk/gnome-initial-setup.git
 +  track: homed
 +  ref: 50.0-10-g952d28e3e3aefe67bc0dd2d37a0be964d2b69d66

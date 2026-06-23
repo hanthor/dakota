@@ -207,6 +207,28 @@ Forgetting this means countme pings the wrong Fedora metalink repo. The script h
 > Add further entries here when you discover a new pattern.
 > Format: `### <pattern name> (YYYY-MM-DD)`
 
+### gnome-build-meta element refactors break junction references (2026-06-23)
+
+When gnome-build-meta reorganizes its element tree (e.g. splitting a monolithic `.bst` into a subdirectory), any junction reference `gnome-build-meta.bst:old/path.bst` silently becomes invalid. The build fails at element-loading time (before any compilation), not at the patch-apply stage.
+
+**Symptom:** CI fails with:
+```
+oci/layers/bluefin-stack.bst [line N column M]: Could not find element 'oci/initramfs.bst'
+in project referred to by junction element 'gnome-build-meta.bst'
+```
+
+**Known rename (gnome-build-meta master, ref `91574558b6...`):**
+- Old: `oci/initramfs.bst`
+- New: `oci/initramfs/image.bst` (the final image), `oci/initramfs/filesystem.bst`, `oci/initramfs/deps.bst`, `oci/initramfs/initial-scripts.bst`
+- The equivalent of the old `oci/initramfs.bst` is `oci/initramfs/image.bst`
+
+**How to find the new path:** check `gnomeos/stack.bst` in the new gnome-build-meta tree — it mirrors what dakota's `bluefin-stack.bst` should reference:
+```bash
+curl -s "https://gitlab.gnome.org/GNOME/gnome-build-meta/-/raw/<new-ref>/elements/oci/gnomeos/stack.bst"
+```
+
+**Fix:** update `elements/oci/layers/bluefin-stack.bst` (or equivalent) to use the new path.
+
 ### Patch context lines break when upstream bumps a source ref (2026-06-23)
 
 When gnome-build-meta bumps an element's upstream source ref (e.g. `gnome-initial-setup.bst` advances from `50.0-65-g4472cba` to `50.0-66-g77be510d`), any `patch_queue` patch that removes the old ref line (`-  ref: <old>`) will fail to apply even though no functional code changed.

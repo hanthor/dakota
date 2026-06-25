@@ -45,7 +45,7 @@ Use when you need product/repo context before planning work, when someone asks w
 - CI green is not sufficient. Hardware confirmation is.
 
 **Production image = `ghcr.io/projectbluefin/dakota:stable`.**
-- Streams: `:testing` (nightly, e2e-gated), `:latest` + `:stable` (weekly promotion)
+- Streams: `:testing` (nightly, e2e-gated), `:stable` (weekly promotion)
 - Rolling nightly stream: `:next` / `:btw` (GNOME 51 master — see below)
 - When someone says "is X in the image", check the GHCR image via `skopeo inspect` or `podman run --rm` — not a local machine unless explicitly asked.
 
@@ -60,16 +60,16 @@ freedesktop-sdk provides glibc/systemd/kernel, gnome-build-meta provides GNOME S
 
 **Key positioning:** Dakota is a **curated subset** of production Bluefin, not a 1:1 clone. It intentionally includes things production Bluefin doesn't have (sudo-rs, uutils-coreutils, GNOME nightly) and intentionally omits things that don't make sense for a from-source build (Nvidia drivers, ZFS, enterprise AD/Kerberos).
 
-Published image: `ghcr.io/projectbluefin/dakota:{testing,latest,stable,:next,:btw}`
+Published image: `ghcr.io/projectbluefin/dakota:{testing,stable,next,btw}`
 
 ## Image Streams
 
 | Tag | Branch | GNOME | Cadence | Stability |
 |-----|--------|-------|---------|-----------|
-| `:testing` | `main` | GNOME 50 (stable) | Every merged PR | e2e-gated |
-| `:latest` / `:stable` | `main` | GNOME 50 (stable) | Weekly promotion | Production |
-| `:next` | `next` | GNOME 51 (master) | On junction bump (~nightly) | Experimental |
-| `:btw` | `next` | GNOME 51 (master) | Same as `:next`, nvidia variant | Experimental |
+| `:testing` | `testing` | GNOME 50 (stable) | Daily (13:00 UTC) | boot-check gated |
+| `:stable` | `main` (bookmark) | GNOME 50 (stable) | Auto-promotes from testing | Production |
+| `:next` | `next` | GNOME 51 (master) | Daily (03:00 UTC) | Experimental |
+| `:btw` | `next` | GNOME 51 (master) | Daily (03:00 UTC), nvidia | Experimental |
 
 ### `:next` / `:btw` — Rolling GNOME 51 stream
 

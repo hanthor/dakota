@@ -19,7 +19,7 @@ Load this file, identify the failure class, then load only the next skill you ne
 Use this skill when the task mentions:
 - GitHub Actions failures
 - `startup_failure`, `action_required`, missing jobs, or flaky checks
-- `publish.yml`, `build.yml`, `promote-testing-to-main.yml`, `execute-release.yml`
+- `publish.yml`, `build.yml`, `execute-release.yml`
 - boot-check, smoke, testsuite, SBOM, or GHCR publish problems
 - merge queue, promotion PRs, or stable release flow
 
@@ -94,27 +94,27 @@ The rationalizations that have caused real production failures:
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `build.yml` | `push: main/next/testing` (paths-ignore: docs/workflows/md), `merge_group`, `workflow_dispatch` — NOT `pull_request` | BST build → artifacts into remote CAS. Does NOT push to GHCR. `validate` job runs on `pull_request` only; `build` job runs on everything else. |
-| `publish.yml` | `workflow_run` from `build.yml` (branches: main, next, testing, + their gh-readonly-queue/* paths) | Export from CAS → push `:$sha` → sign/attest → promote to `:testing`/`:next`. No build happens here. |
-| `promote-testing-to-main.yml` | `push: testing`, `schedule: Tue 04:00 UTC`, `workflow_dispatch` | Opens/updates promotion PR from testing into main. |
-| `pr-release-gate.yml` | `pull_request` to `main` | Gates the promotion PR via cosign verify of `:testing`. |
-| `execute-release.yml` | `push: main`, `workflow_dispatch` | `check-trigger` job gates on commit message matching `^ci\(promote\): dakota testing` or `^chore: promote testing to main`. `workflow_dispatch` bypasses the gate. Copies `:testing` → `:stable`/`:latest`, creates GitHub Release. |
-| `cache-warm.yml` | `schedule: Mon/Thu 06:00 UTC`, `workflow_dispatch` | Pre-warms remote CAS. Two parallel jobs (x86_64, aarch64), `continue-on-error: true`. **Not exempt from pre-flight — cancel before any real build.** |
+| `build.yml` | `merge_group`, `workflow_dispatch`, `schedule: daily 13:00 UTC` — NOT `pull_request` | BST build → artifacts into remote CAS. Does NOT push to GHCR. `validate` job runs on `pull_request` only; `build` job runs on everything else. |
+| `publish.yml` | `workflow_run` from `build.yml` (branches: testing, next, + their gh-readonly-queue/* paths) | Export from CAS → push `:$sha` → sign/attest → promote to `:testing`/`:next`. No build happens here. |
+| `execute-release.yml` | `workflow_run` from `publish.yml` on `testing`, `workflow_dispatch` | SHA freshness check (:testing vs :stable). If different: cosign verify → boot-check → skopeo copy `:testing` → `:stable` → fast-forward main → create GitHub Release. Skips if equal. |
+| ~~`promote-testing-to-main.yml`~~ | DELETED | Was: `push: testing`, schedule Tue 04:00 UTC, manual. |
+| ~~`pr-release-gate.yml`~~ | DELETED | Was: `pull_request` to `main`. |
+| ~~`sync-main-to-testing.yml`~~ | DELETED | Was: `push: main`. |
+| ~~`cache-warm.yml`~~ | DELETED | Was: Mon/Thu 06:00 UTC schedule. Daily 13:00 UTC builds keep CAS warm. |
 
 ## Trigger Behavior
 
-| Job | pull_request | push main/next/testing | merge_group | workflow_dispatch | schedule |
+| Job | pull_request | push testing/next | merge_group | workflow_dispatch | schedule |
 |---|---|---|---|---|---|
 | `validate` | Yes | No | No | No | No |
 | `e2e` | Yes (change-detected) | No | No | Yes | No |
-| `build` | No | Yes (paths-ignore) | Yes | Yes | No |
-| `cache-warm` | No | No | No | Yes | Mon/Thu 06:00 UTC |
-| Push to GHCR? | No | Via publish.yml | Via publish.yml | Via publish.yml | No |
+| `build` | No | Yes (paths-ignore) | Yes | Yes | Daily 13:00 UTC |
+| `execute-release` | No | No | No | Yes | Via workflow_run from publish |
+| Push to GHCR? | No | Via publish.yml | Via publish.yml | Via publish.yml | Via publish.yml |
 
 **push paths-ignore:** `.github/workflows/**`, `docs/**`, `**.md`, `AGENTS.md` — doc/workflow-only pushes do NOT trigger a build. This is intentional; it means a CI-only commit advancing the branch HEAD will leave no build artifact for that SHA.
 
 **Branch → tag mapping** (verified from publish.yml source):
-- `main` or `gh-readonly-queue/main/*` → `:testing`
 - `testing` or `gh-readonly-queue/testing/*` → `:testing`
 - `next` or `gh-readonly-queue/next/*` → `:next`
 
@@ -122,13 +122,70 @@ The rationalizations that have caused real production failures:
 
 **e2e change detection:** `e2e` uses a `should-run` job that diffs the PR branch against its base. It runs when `elements/`, `files/`, `patches/`, `Justfile`, or `project.conf` change; otherwise the `e2e` job is skipped. Skipped satisfies the required status check.
 
-**Merge queue path:** `build` fires on `merge_group` — full OCI build, real CI gate before merge.
+**Merge queue path:** `build` fires on `merge_group` — full OCI build, real CI gate before merge. PRs target `testing`; `next` retains its own merge queue.
 
-**Cache-warm path:** `cache-warm.yml` runs Monday and Thursday at 06:00 UTC and on manual dispatch. Two parallel jobs — `warm-cache` (x86_64) and `warm-cache-aarch64` — run independently with no `needs:` dependency between them. Each has its own concurrency group (`dakota-cache-warm` and `dakota-cache-warm-aarch64`) so they never serialise. Both use `continue-on-error: true` and failures are non-blocking — best-effort. Addresses the cold-start non-determinism documented in [common automation-audit ND1](https://github.com/projectbluefin/common/blob/main/docs/factory/automation-audit/non-deterministic-steps.md).
+**Daily build schedule:** `build.yml` fires at 13:00 UTC daily (after `nightly-next-build` completes). This keeps CAS warm and ensures a fresh `:testing` tag each day even without a code push. `cache-warm.yml` was deleted — the daily build replaces it.
+
+**ARM build:** `build-aarch64.yml` fires via `workflow_run` from `publish.yml` on the `testing` branch. This serializes ARM after x86 CAS writes complete, preventing contention. The previous Tuesday cron trigger was removed.
 
 ## Remote Cache Architecture
 
 `cache.projectbluefin.io:11002` handles all five BST remote services: artifact cache, source cache, CAS storage, remote execution, and action cache. All use the same endpoint with mTLS auth.
+
+### The Only Caching Model That Works: Build Local, Push Once
+
+**This is the primary BST caching strategy for Dakota. Everything else is a variation or a failure mode.**
+
+```
+build phase:   runner local disk  ←── reads from cache.projectbluefin.io:11001 (read-only)
+                                  ←── reads from gbm.gnome.org:11003 (upstream elements)
+                                       builds missing elements locally
+                                       stores finished artifacts on runner disk
+
+push phase:    runner local disk  ──► cache.projectbluefin.io:11002 (one targeted push)
+               bst artifact push --deps none <element>
+               (runs after build completes successfully)
+```
+
+**Why this is the only way BST makes sense here:**
+
+We have one builder. One CAS server. The server is rate-limited and can sustain one build
+at a time. The build can take 4–6 hours for a cold start.
+
+When `enable-push: true` (streaming mode), BST writes every artifact blob to the remote CAS
+*as it builds* — a sustained 4-hour write stream over gRPC. One dropped connection kills the
+entire build and leaves partial blobs in the cache. The next build starts with a *dirtier*
+cache than if no push had happened at all. The factory destroys itself.
+
+When `enable-push: false` (local-first mode):
+- Build reads upstream elements from the cache (fast, read-only, low traffic)
+- Every element that misses the remote cache is built locally and stored on runner disk
+- The build runs to completion — no remote dependency during the build phase
+- One explicit `bst artifact push` at the end writes the finished, complete artifact set
+- The next build starts with a clean, complete warm cache
+
+**The explicit push step in `build.yml`:**
+
+```yaml
+- name: Push OCI artifact to remote CAS
+  env:
+    BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-ci.conf
+  run: |
+    just bst artifact push --deps none ${{ matrix.element }}
+```
+
+`--deps none` pushes only the top-level OCI element. BST artifact push is idempotent —
+already-cached elements are skipped. This step runs after a successful build and populates
+the cache with exactly what the next build needs to start warm.
+
+**What "warm cache" means in practice:** A warm build skips the element graph entirely for
+unchanged upstream refs and only rebuilds elements whose inputs changed since the last push.
+On a typical nightly run (gnome-build-meta delta) this is ~30 minutes vs ~6 hours cold.
+Every cancelled or failed build that did not complete its push step is a full cold-start cost
+for the next run.
+
+**Rule:** Never add a `storage-service` block or `remote-execution` block to `buildstream-ci.conf`
+during the build phase. Reads are fine. Streaming writes during the build phase are not.
 
 ### mTLS Authentication
 
@@ -138,6 +195,58 @@ The rationalizations that have caused real production failures:
 | `CASD_CLIENT_KEY` | Repository **secret** | PEM-encoded private key |
 
 **Push is conditional:** Remote cache section is only added to `buildstream-ci.conf` if **both** are set. Without credentials, BST builds from source using local disk cache only — slower but functional. This is normal for external contributors' forks.
+
+### CAS drops connections mid-build — disable remote-execution + push
+
+**Symptom:** Build proceeds cleanly for 3–4 hours (hundreds of elements pulled), then fails:
+
+```
+grpc StatusCode.UNAVAILABLE: ipv4:77.42.112.172:11002: Failed to connect to remote host: Connection refused
+```
+
+Pipeline summary: `Build Queue: failed 5, Src-push Queue: failed 5`.
+
+**Root cause:** `cache.storage-service` routes local buildbox-casd through the remote CAS.
+When remote CAS drops (crash, OOM, disk full), local casd loses its storage backend and
+BST cannot proceed even though all prior artifact pulls succeeded.
+
+**BST constraint:** BST requires `storage-service` when `remote-execution` is configured.
+Setting `enable-push: false` alone is NOT sufficient — the action still emits the
+`remote-execution:` block if `enable-remote-execution: 'true'`, and BST rejects the config:
+```
+Error loading user configuration: Remote execution requires 'storage-service' to be specified
+```
+
+**Workaround:** Set BOTH to false in `build.yml`:
+
+```yaml
+uses: ./.github/actions/generate-bst-ci-config
+with:
+  enable-remote-execution: 'false'
+  enable-push: 'false'
+```
+
+Local casd uses runner disk. Pulls still read from `gbm.gnome.org:11003` and
+`cache.projectbluefin.io:11001` (read-only). Missing elements build from source locally.
+
+**DO NOT re-enable these flags.** `cache.projectbluefin.io:11002` is still unstable.
+Changing these flags back to `'true'` is a human decision — not a task for agents.
+This workaround has been reverted twice by agents misreading TODO comments. There is
+no TODO. The flags stay `'false'` until a human confirms the server is stable.
+
+*Agent re-enable history:* PR #1092 (partial), #1093 (full fix), re-enabled by agent
+commit `7d2a82d`, re-fixed by PR #1098. Do not repeat this cycle.
+
+**Server recovery (Hetzner AX102-U):**
+```bash
+systemctl status buildbox-casd
+df -h                           # partial build blobs can fill disk
+journalctl -u buildbox-casd -n 50
+```
+
+**Distinguish from "CAS down at startup":** At-startup failure hits during "Loading elements"
+with `BUG: Message handling out of sync`. Mid-build drop hits at ~68% during src-push.
+Both are infrastructure failures requiring server-side attention.
 
 ## ⚠️ Pre-Commit BST Syntax Gate
 
@@ -151,16 +260,16 @@ Must exit clean before `git commit`. Catches invalid option names, types, and el
 
 ## ⚠️ Branch Base Rule
 
-Always branch from `upstream/main`, never from local `main`:
+Always branch from `upstream/testing` (the development trunk), never from local `testing` or `main`:
 
 ```bash
-git checkout upstream/main -b feature/my-change
-git diff upstream/main...HEAD --stat   # verify before pushing
+git checkout upstream/testing -b feature/my-change
+git diff upstream/testing...HEAD --stat   # verify before pushing
 ```
 
 **Recovery when a branch is already dirty:**
 ```bash
-git rebase --onto upstream/main <last-unwanted-commit-sha> <branch-name>
+git rebase --onto upstream/testing <last-unwanted-commit-sha> <branch-name>
 git push --force-with-lease origin <branch-name>
 ```
 
@@ -220,14 +329,33 @@ PRs created by a workflow using `GITHUB_TOKEN` do NOT fire `pull_request` events
 
 ## Ruleset
 
-Ruleset: `main-review-required-with-renovate-bypass`
+### testing (development trunk)
+
+Ruleset: `testing-merge-queue-no-review`
 
 | Rule | Value |
 |---|---|
-| Required reviews | 1 approving review |
+| Required reviews | 0 (fully automated) |
 | Required status checks | `validate` + `e2e` |
-| Merge queue | ALLGREEN, max_entries_to_build=1, check_response_timeout=120 min |
-| Bypass actors | OrganizationAdmin, Renovate, mergeraptor |
+| Merge queue | enabled (SQUASH, ALLGREEN) |
+| Force push | blocked |
+| Deletion | blocked |
+
+**`testing` is the GitHub default branch and the merge target for all PRs.**
+
+### main (release bookmark)
+
+Ruleset: `main-bookmark-protection`
+
+| Rule | Value |
+|---|---|
+| Required reviews | none |
+| Required status checks | none |
+| Merge queue | none |
+| Non-fast-forward | blocked |
+| Deletion | blocked |
+
+`main` is written only by `execute-release.yml` via fast-forward after each successful stable promotion.
 
 **e2e change detection:** `e2e` only tests PRs touching `elements/`, `files/`, `patches/`, `Justfile`, or `project.conf`. For all other paths (e.g. workflow pin bumps) the `e2e` job is skipped, which satisfies the required check. The `should-run` job uses `git diff` against the PR base — no `paths:` filter on the trigger.
 
@@ -314,11 +442,12 @@ podman run --rm --network=host ...
 podman run --rm --network=host --security-opt seccomp=unconfined ...
 ```
 
-### Continuous :testing model — every merge ships immediately (2026-06-07)
+### Daily :testing model — strict schedule (2026-06-25)
 
-The pipeline was redesigned so every PR merge produces a new `:testing` image
-without any e2e gate in the publish path. The schedule trigger was removed from
-`build.yml`; builds now only fire on `merge_group` and `workflow_dispatch`.
+The pipeline was redesigned so `:testing` publishes only once a day on schedule.
+PR merges warm the CAS via `merge_group`, but the push trigger was removed from
+`build.yml` to prevent global CAS concurrency starvation; builds now fire on
+schedule (`13:00 UTC`), `merge_group`, and `workflow_dispatch`.
 
 **New flow:**
 ```
@@ -750,17 +879,17 @@ The GitHub release (notes + card + SBOM) is created automatically by
 
 ### check-diff skip silently skips missing variant :stable tags (2026-06-08)
 
-`check-diff` compares `dakota:testing` vs `dakota:latest` only. If they match,
+`check-diff` compares `dakota:testing` vs `dakota:stable` only. If they match,
 `has_diff=false` and the entire `promote` matrix is skipped — including the
 nvidia variant. This means if `dakota-nvidia:stable` was never created (e.g.,
-nvidia `:testing` didn't exist during the first promotion that set `:latest`),
+nvidia `:testing` didn't exist during the first promotion that set `:stable`),
 it will silently never get set on subsequent runs where the default image hasn't
 changed.
 
 **How it breaks:**
 
 1. First promotion: NVIDIA `:testing` not found → `has_nvidia=false` → nvidia skipped
-2. Next promotion: NVIDIA `:testing` now exists, but `dakota:testing == dakota:latest`
+2. Next promotion: NVIDIA `:testing` now exists, but `dakota:testing == dakota:stable`
    → `has_diff=false` → entire promote job skipped → `dakota-nvidia:stable` never set
 
 **Fix (manual):** Copy from the matching `:testing` digest directly:
@@ -931,8 +1060,7 @@ testing advanced without a prior main publish.
 
 **Fix (PR 766):** add `testing` and `gh-readonly-queue/testing/**` to the
 `workflow_run.branches` filter, extend the `setup` job `if` condition, and map
-`testing` branch → `testing_tag=testing`. Match bluefin/bluefin-lts: every merge
-to testing publishes `:testing` immediately.
+`testing` branch → `testing_tag=testing`. Match bluefin/bluefin-lts: testing pushes publish `:testing`.
 
 ### track-bst-sources: branch from origin/$BASE_BRANCH, not origin/main (2026-06-10)
 
@@ -1677,7 +1805,7 @@ Never rely on `actions/cache` to guarantee the directory exists.
 The testsuite `smoke` suite runs AT-SPI / GNOME Settings accessibility
 tests that take **80+ minutes** in a VM and fail on timing sensitivity
 in VMs, not on real image defects. Using it as a hard promote gate
-blocks `:testing` on every merge without catching real regressions
+blocks `:testing` without catching real regressions
 (boot failures, composefs xattr breakage are caught by user reports,
 not AT-SPI tests).
 
@@ -2215,3 +2343,56 @@ fi
 ```
 
 Without the fallback, approved PRs with already-green CI sit permanently unmerged.
+
+### OCI-native daily promotion model — pipeline timing and deleted workflows (2026-06-23)
+
+Dakota migrated from a weekly squash-PR ceremony to a daily OCI-native promotion
+flow (issue 1073). Key operational facts for CI debugging:
+
+**Deleted workflows (do not recreate):** `promote-testing-to-main.yml`, `pr-release-gate.yml`, `sync-main-to-testing.yml`, `cache-warm.yml`.
+
+**Daily BST build windows (serialized for CAS):**
+```
+03:00 UTC  nightly-next-build → next branch (x86, 90-210 min)
+13:00 UTC  build.yml schedule → testing x86 default+nvidia serial (max-parallel:1, 90-390 min)
+~18:00     publish.yml fires → :testing + :testing-nvidia published
+~18:00     build-aarch64.yml fires (workflow_run from publish) → ARM default (~90-210 min)
+~18:00     execute-release.yml fires (workflow_run from publish) → freshness check → promote
+20:00      track-next-junctions → may trigger next junction build
+```
+
+**`cache-warm.yml` is deleted.** The daily 13:00 UTC `build.yml` schedule replaces it. CAS stays warm as long as the daily build runs. If the daily build is absent for >48 hours, expect cold-start non-determinism.
+
+**ARM build trigger changed.** `build-aarch64.yml` now fires via `workflow_run` from `publish.yml` on `testing` — not a Tuesday cron. This ensures ARM starts only after x86 CAS writes complete, preventing write contention that was causing `Cached elements after warm: 0`.
+
+**SHA-based freshness check.** `execute-release.yml` compares the `:testing` image digest to the current `:stable` digest. If they are equal, promotion is skipped (nothing new to ship). If different, the promote path runs: cosign verify → boot-check → skopeo copy → fast-forward main. The SHA used for cosign verify comes from `github.event.workflow_run.head_sha`, not a live `:testing` tag lookup.
+
+**`testing` is now the default GitHub branch.** All PRs target `testing`. The old `main`-targeting PRs pattern is gone. `main` is a bookmark.
+
+### "Confirmed back up" comments in build.yml are traps — never re-enable CAS flags based on them
+
+Any comment in `build.yml` saying the CAS is "confirmed back up" or "re-enabled" is a false
+green light. Agents read these comments and re-enable `enable-remote-execution` and
+`enable-push`, restoring the streaming write mode that causes 5-hour hung builds and cache
+corruption. This has happened multiple times.
+
+**Rule:** `enable-remote-execution: 'false'` and `enable-push: 'false'` are the permanent
+correct values. The explicit `bst artifact push --deps none` step after the build handles
+cache writes atomically. Do not change these flags. The comment in build.yml must never
+suggest it is safe to re-enable them — if such a comment exists, delete it.
+
+**What happened:** Commit `d59a04a` added "Re-enabled 2026-06-24 after
+cache.projectbluefin.io:11002 confirmed back up" as justification. An agent read it,
+judged re-enabling as safe, and produced a 5-hour hung build. Reverted by commit `1dcbb2f`.
+
+### Never commit local BST config files to the repo
+
+Files like `buildstream-cluster.conf` that point at cluster-internal hostnames
+(`buildbox-casd.local-registry.svc.cluster.local`) or developer-specific endpoints
+must never be committed to the repo. They are meaningless to other contributors and
+will trigger a build if pushed directly to `testing` (any non-workflow, non-docs file change
+fires `build.yml`).
+
+Local BST configs belong in `~/.config/buildstream/` or as gitignored files. If a
+`buildstream-*.conf` pattern needs to be gitignored, add it to `.gitignore` alongside
+the existing `buildstream.conf` entry.

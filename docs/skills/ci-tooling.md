@@ -200,9 +200,12 @@ before `enqueuePullRequest` succeeds. A manually-posted commit status is rejecte
 as a non-bot actor — the org bot restriction does not apply to human pushes:
 
 ```bash
-git checkout -b unblock upstream/auto/promote-testing-to-main
+# Example for any auto-pr-bot branch stuck on first run.
+# Historical case was auto/promote-testing-to-main (workflow now deleted);
+# the same pattern unblocks any bot-authored PR branch.
+git checkout -b unblock upstream/<bot-branch>
 git commit --allow-empty -m "ci: trigger validate as non-bot actor"
-git push upstream unblock:auto/promote-testing-to-main
+git push upstream unblock:<bot-branch>
 # validate fires on pull_request:synchronize as human → posts check run
 # enqueuePullRequest now succeeds
 ```
@@ -333,9 +336,66 @@ if [ "$rc" -eq 0 ]; then
   ...
 ```
 
-This pattern is now used in both `build.yml` and `cache-warm.yml` (fixed in
+This pattern is now used in `build.yml` (fixed in
 commit `1f89a42`). Apply the same pattern to any future step that needs to capture
 both the output and exit code of a command that may fail.
+
+### 15) `${{ inputs.X }}` in job `if:` causes startup_failure on workflow_run triggers
+
+**Symptom:** `startup_failure` with zero jobs and zero log output on a workflow
+triggered by `workflow_run`. The same workflow works fine when triggered by
+`workflow_dispatch`.
+
+**Root cause:** `${{ }}` expression syntax in a job `if:` condition that references
+the `inputs` context. When triggered by `workflow_run`, the `inputs` context is absent.
+The `${{ }}` wrapper evaluates it and errors at startup before any jobs are created.
+
+```yaml
+# BROKEN — startup_failure when triggered by workflow_run (inputs absent)
+if: ${{ inputs.dry_run != true && github.event_name == 'workflow_run' }}
+
+# CORRECT — bare if: handles absent inputs context safely (null != true = true)
+if: inputs.dry_run != true && github.event_name == 'workflow_run'
+```
+
+**Scope:** Affects any workflow that:
+1. Can be triggered by both `workflow_run` and `workflow_dispatch`
+2. Has job `if:` conditions using `${{ inputs.X }}`
+
+**Diagnosis:** Search the workflow file for all `if:` conditions containing
+`${{ }}` that reference `inputs`. All of them need the wrapper removed.
+
+### 15b) Undeclared input passed to reusable workflow — startup_failure
+
+**Symptom:** `startup_failure` with zero jobs, identical to pattern 15. Actionlint is clean.
+YAML parses correctly. The fix for pattern 15 (removing `${{ }}`) doesn't resolve it.
+
+**Root cause:** The caller workflow passes an input via `with:` that the reusable workflow
+does NOT declare in its `on.workflow_call.inputs:`. GitHub validates the workflow graph
+at dispatch time and fails before any jobs start.
+
+```yaml
+# BROKEN — build_run_id not declared in reusable-release.yml
+uses: org/actions/.github/workflows/reusable-release.yml@v1
+with:
+  build_run_id: ${{ github.event.workflow_run.id }}   # undeclared input
+  build_workflow: publish.yml
+
+# CORRECT — only pass declared inputs
+uses: org/actions/.github/workflows/reusable-release.yml@v1
+with:
+  build_workflow: publish.yml
+```
+
+**Fix:** Remove the undeclared input from the caller's `with:` block. If the feature is
+needed, add the input declaration to the reusable workflow's `on.workflow_call.inputs:` first.
+
+**Why pattern 15 fixes don't help:** Removing `${{ }}` from `if:` conditions is correct
+but does not prevent graph-validation failure on undeclared inputs.
+
+**Actionlint does not catch this.** YAML is valid, actionlint passes, error is runtime-only.
+
+**Verification:** Dispatch the fixed workflow and confirm jobs appear (not `startup_failure` with 0 jobs).
 
 ## Red Flags
 
@@ -353,6 +413,9 @@ both the output and exit code of a command that may fail.
 - landing a CI feature on `testing` and assuming it survives the next sync-main-to-testing
 - `pr-triage` gate only allowing `renovate/*` to target `testing`, blocking feature PRs
 - rapid-fire PR merges cancelling each other's pending builds (manual dispatch needed)
+- `if: ${{ inputs.X }}` in a job condition on a workflow that can be triggered by `workflow_run`
+- `with:` block in a reusable workflow call passing inputs not declared in the target workflow
+- `startup_failure` that persists after fixing all `${{ }}` in `if:` conditions (check undeclared inputs)
 
 ## Verification
 
@@ -368,3 +431,4 @@ both the output and exit code of a command that may fail.
 - [ ] `validate` job runs on both `pull_request` and `merge_group` (not just `pull_request`)
 - [ ] `renovate-automerge.yml` does NOT have `workflows: write` (invalid scope — actionlint rejects it; use Mergeraptor app token instead)
 - [ ] CI-only changes that must survive sync are either landed on main directly or promoted before the next unrelated main push
+- [ ] All job `if:` conditions in dual-trigger workflows (`workflow_run` + `workflow_dispatch`) use bare expressions, not `${{ }}` wrappers

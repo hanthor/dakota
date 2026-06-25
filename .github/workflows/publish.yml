@@ -6,8 +6,6 @@ on:
     workflows: ["Build Bluefin dakota"]
     types: [completed]
     branches:
-      - main
-      - 'gh-readonly-queue/main/**'
       - next
       - 'gh-readonly-queue/next/**'
       - testing
@@ -25,7 +23,7 @@ permissions:
   actions: read
 
 concurrency:
-  # Separate publish queues per branch so next and main don't collide.
+  # Separate publish queues per branch so next and testing don't collide.
   group: publish-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: false
 
@@ -43,9 +41,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event != 'pull_request' &&
-       (github.event.workflow_run.head_branch == 'main' ||
-        startsWith(github.event.workflow_run.head_branch, 'gh-readonly-queue/main/') ||
-        github.event.workflow_run.head_branch == 'next' ||
+       (github.event.workflow_run.head_branch == 'next' ||
         startsWith(github.event.workflow_run.head_branch, 'gh-readonly-queue/next/') ||
         github.event.workflow_run.head_branch == 'testing' ||
         startsWith(github.event.workflow_run.head_branch, 'gh-readonly-queue/testing/')))
@@ -64,22 +60,19 @@ jobs:
           fi
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
           # Derive the :testing tag from the branch name.
-          # main     → :testing  (from main via promote job)
-          # testing  → :testing  (direct: every merge to testing publishes immediately)
+          # Only trunk branches (direct pushes / schedule) advance stream tags.
+          # Merge-queue builds (gh-readonly-queue/**) publish an immutable :SHA
+          # tag only — they must NOT move public stream tags before the commit lands.
+          # testing  → :testing  (published daily on schedule)
           # next     → :next     (rolling GNOME master / bleeding edge)
-          if [[ "$BRANCH" == "main" || "$BRANCH" == gh-readonly-queue/main/* ]]; then
-            echo "testing_tag=testing" >> "$GITHUB_OUTPUT"
-          elif [[ "$BRANCH" == "next" || "$BRANCH" == gh-readonly-queue/next/* ]]; then
+          # queue/** → (empty)   :SHA only, no stream tag
+          if [[ "$BRANCH" == "next" ]]; then
             echo "testing_tag=next" >> "$GITHUB_OUTPUT"
-          elif [[ "$BRANCH" == "testing" || "$BRANCH" == gh-readonly-queue/testing/* ]]; then
-            # testing branch builds publish :testing directly so every merge to
-            # testing produces a fresh image. Matches bluefin/bluefin-lts behaviour.
+          elif [[ "$BRANCH" == "testing" ]]; then
             echo "testing_tag=testing" >> "$GITHUB_OUTPUT"
           else
-            # Fallback for any future branches: strip merge-queue prefix
-            CLEAN="${BRANCH#gh-readonly-queue/}"
-            CLEAN="${CLEAN%%/*}"
-            echo "testing_tag=${CLEAN}-testing" >> "$GITHUB_OUTPUT"
+            # merge-queue or other refs: publish :SHA tag only, do NOT move stream tags
+            echo "testing_tag=" >> "$GITHUB_OUTPUT"
           fi
 
   # ── Export, sign, attest ─────────────────────────────────────────────────
@@ -592,7 +585,7 @@ jobs:
       # The wheel lives at ~/.cache/pip on the host; mounted into the bst2
       # container via -v in just sbom so pip finds it without a network fetch.
       - name: Restore pip cache for buildstream-sbom
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
           path: ~/.cache/pip
           key: pip-sbom-0706fec3bedf6f73bd9d2fed32c2aed585feef8d
@@ -678,7 +671,8 @@ jobs:
     if: >-
       needs.publish-image.result == 'success' &&
       needs.boot-check.result == 'success' &&
-      (github.event_name == 'workflow_run' || github.ref_name == 'main')
+      needs.setup.outputs.testing_tag != '' &&
+      github.event_name == 'workflow_run'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false

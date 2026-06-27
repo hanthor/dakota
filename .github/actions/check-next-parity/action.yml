@@ -1,0 +1,85 @@
+name: Check next parity
+description: Ensure next differs from main only by allowed junction track/ref lines.
+
+inputs:
+  base-ref:
+    description: Base git ref to compare against.
+    required: false
+    default: origin/main
+  target-ref:
+    description: Target git ref to compare.
+    required: false
+    default: HEAD
+
+runs:
+  using: composite
+  steps:
+    - name: Check next parity
+      shell: bash
+      env:
+        BASE_REF: ${{ inputs.base-ref }}
+        TARGET_REF: ${{ inputs.target-ref }}
+      run: |
+        set -euo pipefail
+
+        if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+          echo "ERROR: base ref '$BASE_REF' not found. Ensure checkout fetch-depth is 0."
+          exit 1
+        fi
+        if ! git rev-parse --verify "$TARGET_REF" >/dev/null 2>&1; then
+          echo "ERROR: target ref '$TARGET_REF' not found."
+          exit 1
+        fi
+
+        mapfile -t changed_files < <(git diff --name-only "$BASE_REF..$TARGET_REF")
+        if [[ ${#changed_files[@]} -eq 0 ]]; then
+          echo "OK: no differences between $BASE_REF and $TARGET_REF"
+          exit 0
+        fi
+
+        allowed_file_1="elements/gnome-build-meta.bst"
+        allowed_file_2="elements/freedesktop-sdk.bst"
+        disallowed_files=()
+
+        for file in "${changed_files[@]}"; do
+          if [[ "$file" != "$allowed_file_1" && "$file" != "$allowed_file_2" ]]; then
+            disallowed_files+=("$file")
+          fi
+        done
+
+        if [[ ${#disallowed_files[@]} -gt 0 ]]; then
+          echo "ERROR: next drift detected outside allowed junction files:"
+          printf '  %s\n' "${disallowed_files[@]}"
+          exit 1
+        fi
+
+        violations=0
+        for file in "$allowed_file_1" "$allowed_file_2"; do
+          [[ " ${changed_files[*]} " != *" $file "* ]] && continue
+
+          file_violations=$(
+            git diff -U0 "$BASE_REF..$TARGET_REF" -- "$file" \
+              | awk '
+                /^@@/ {next}
+                /^(\+\+\+|---)/ {next}
+                /^[+-]/ {
+                  line=$0
+                  sub(/^[+-][[:space:]]*/, "", line)
+                  if (line ~ /^(track|ref):[[:space:]]/) next
+                  print $0
+                }
+              '
+          )
+
+          if [[ -n "$file_violations" ]]; then
+            echo "ERROR: unauthorized changes in $file (only track:/ref: allowed):"
+            echo "$file_violations"
+            violations=1
+          fi
+        done
+
+        if [[ $violations -ne 0 ]]; then
+          exit 1
+        fi
+
+        echo "OK: next parity holds (only allowed junction track/ref deltas found)"

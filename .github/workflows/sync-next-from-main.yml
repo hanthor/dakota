@@ -79,5 +79,13 @@ jobs:
           git add elements/gnome-build-meta.bst elements/freedesktop-sdk.bst
           git commit --amend --no-edit
 
+      - name: Check next parity
+        uses: ./.github/actions/check-next-parity
+        with:
+          base-ref: origin/main
+          target-ref: HEAD
+
+      - name: Push next branch
+        run: |
           git push origin next
           echo "Synced main → next (junction refs preserved)"

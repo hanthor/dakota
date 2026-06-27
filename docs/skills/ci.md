@@ -414,6 +414,24 @@ gh run list --repo projectbluefin/dakota --limit 5
 
 ## Lessons Learned
 
+### next parity must be enforced inside existing next-mutating workflows (2026-06-27)
+
+`next` drifted from `main` beyond junction refs when sync/track paths had no
+hard parity gate. Keep this invariant executable:
+
+- allowed drift: only `track:` / `ref:` lines in
+  `elements/gnome-build-meta.bst` and `elements/freedesktop-sdk.bst`
+- forbidden drift: every other file, and every other line in those two files
+
+Implement as a local composite action (`.github/actions/check-next-parity`)
+and run it from both:
+
+1. `sync-next-from-main.yml` after junction restore, before push
+2. `track-next-junctions.yml` after source-track, before PR creation
+
+Do not fork parity logic in multiple inline `run:` blocks; reuse one action so
+policy updates stay single-source.
+
 ### Push --deps all fails on local runner under remote execution mode (2026-06-26)
 
 When `enable-remote-execution: 'true'` is used, the build is executed on the remote executor, leaving the local runner's cache empty of intermediate and bootstrap artifacts. Subsequent local post-build steps running `just bst artifact push --deps all` will fail because they cannot find dependencies (like `bootstrap/base-sdk/binary-seed-x86_64.bst`) in the local cache. If remote execution is enabled, the artifacts are already written to the remote CAS by the worker, making local pushes both redundant and impossible. If remote execution must be bypassed or local artifacts are compiled, disable remote execution (`enable-remote-execution: 'false'`) to populate the local cache first.

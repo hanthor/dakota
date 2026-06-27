@@ -57,6 +57,12 @@ jobs:
           just bst --no-interactive source track gnome-build-meta.bst
           just bst --no-interactive source track freedesktop-sdk.bst
 
+      - name: Check next parity
+        uses: ./.github/actions/check-next-parity
+        with:
+          base-ref: origin/main
+          target-ref: HEAD
+
       - name: Create or update PR against next (auto-merge)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}

@@ -14,13 +14,6 @@ depends:
 - freedesktop-sdk.bst:components/lz4.bst
 - freedesktop-sdk.bst:components/sqlite.bst
 
-variables:
-  # VALIDATE: cowsql can build its own bundled raft; we link the external
-  # raft.bst instead. Confirm the exact opt name (historically
-  # --enable-build-raft=no) against the v1.15.x configure.ac.
-  conf-local: >-
-    --enable-build-raft=no
-
 public:
   bst:
     split-rules:

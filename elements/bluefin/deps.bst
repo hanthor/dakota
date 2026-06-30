@@ -40,7 +40,7 @@ depends:
   - bluefin/gnome-ponytail-daemon.bst
   - bluefin/network.bst
   - bluefin/countme.bst
-  - bluefin/lsp-plugins-lv2.bst
+  # - bluefin/lsp-plugins-lv2.bst
 
   # Include things missing from the gnomeos base image
   - gnome-build-meta.bst:core-deps/fwupd.bst
@@ -62,3 +62,7 @@ depends:
   - bluefin/distrobox.bst
   - gnome-build-meta.bst:gnomeos-deps/just.bst
   - gnome-build-meta.bst:gnomeos-deps/wl-clipboard.bst
+
+  - bluefin/bindmounts.bst
+
+  - gnome-build-meta.bst:gnomeos-deps/snapd.bst

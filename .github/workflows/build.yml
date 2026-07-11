@@ -22,24 +22,11 @@ env:
   IMAGE_NAME: dakota
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
-# Serialize workflow runs across branches/workflows that may write to the shared
-# BuildStream CAS. Pull-only warmup shard builds still run in parallel inside one
-# workflow run; only separate workflow runs queue here.
-#
-# Last-write-wins semantics: GitHub keeps at most one pending run per
-# concurrency group, so rapid successive pushes to testing cancel the
-# intermediate queued runs — only the newest pending run builds and
-# publishes. This is accepted by design; the daily 13:00 UTC schedule is
-# the guaranteed catch-up build for anything that got superseded.
 concurrency:
   group: dakota-bst-build-global
   cancel-in-progress: false
 
 jobs:
-  # ── Default-branch precondition ──────────────────────────────────────────
-  # Scheduled triggers always run on the repository default branch. If the
-  # default branch is not "testing", the daily build silently targets the
-  # wrong ref. Fail fast and loudly when that invariant is violated.
   verify-default-branch:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     runs-on: ubuntu-24.04
@@ -56,18 +43,11 @@ jobs:
             exit 1
           fi
 
-  # ── Full OCI build ────────────────────────────────────────────────────────
-  # Fires on schedule, workflow_dispatch, and key-busting pushes to testing.
-  # merge_group is intentionally excluded: the merge queue requires only
-  # `validate` to pass; a full BST build triggered by merge_group is always
-  # cancelled when the PR merges (before the 5h build can finish), which
-  # wastes the CAS slot and starves the scheduled build.
   build:
     needs: [verify-default-branch]
     if: (!cancelled()) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-    # Variants build serially so the final OCI artifact pushes never overlap.
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -94,10 +74,6 @@ jobs:
         id: timestamp
         run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      # ── Disk and storage setup ────────────────────────────────────────
-      # Runs before any podman call (BST uses rootful podman to pull bst2;
-      # storage backend must be stable before first use).
-      # update-podman: true — newer podman from Ubuntu resolute for bst2 pull.
       - name: Setup runner
         uses: projectbluefin/actions/bootc-build/setup-runner@v1
         with:
@@ -105,28 +81,15 @@ jobs:
           update-podman: true
           install-tools: '["just"]'
 
-      # ── Generate CI-specific BuildStream config ───────────────────────
-      # The supported Dakota path is a single BuildStream build of the final
-      # OCI element followed by a push of the built artifact to the remote CAS.
-      # This keeps the build in the same assembly-only architecture that worked
-      # before the warmup/seed/RE-self-heal workarounds were introduced.
       - name: Generate BuildStream CI config
         env:
           CASD_CLIENT_CERT: ${{ vars.CASD_CLIENT_CERT }}
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
         uses: ./.github/actions/generate-bst-ci-config
         with:
-          # Remote execution is enabled here specifically for elements in the bluefin project,
-          # so that expensive project-specific compiles (like bootc, sudo-rs) build on the
-          # remote execution worker on cache.projectbluefin.io:11002 while base platform elements
-          # are fetched locally using GHA.
-          enable-remote-execution: "true"
-          enable-push: "true"
+          enable-remote-execution: "false"
+          enable-push: "false"
 
-      # Count the full element graph so the progress script can show %.
-      # bst show only reads element YAML + fetches junction refs — no CAS
-      # traffic, typically <60s. Runs after Generate BuildStream CI config
-      # so the remote CAS address is available.
       - name: Count elements for progress tracking
         id: count
         env:
@@ -157,15 +120,12 @@ jobs:
             | python3 files/scripts/bst-progress.py
         timeout-minutes: 330
 
-      # Push the built OCI artifact to remote CAS so publish.yml can export it.
       - name: Push OCI artifact to remote CAS
         env:
           BST_FLAGS: -o x86_64_v3 true --no-interactive --config /src/buildstream-push.conf
         run: |
           just bst artifact push --deps run ${{ matrix.element }}
 
-      # ── Upload build logs ─────────────────────────────────────────────
-      # Always upload, even on failure, so build failures can be diagnosed.
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

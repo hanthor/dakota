@@ -20,17 +20,17 @@ runs:
         ENABLE_PUSH: ${{ inputs.enable-push }}
       run: |
         set -euo pipefail
-        sudo mkdir -p /src/logs logs
+        mkdir -p logs
 
         if [[ "${ENABLE_REMOTE_EXECUTION:-false}" == "true" ]]; then
           echo "::error::Dakota CI uses the GitHub runner for the BuildStream build; remote execution is intentionally disabled."
           exit 1
         fi
 
-        printf '%s\n' "${CASD_CLIENT_CERT:-}" | sudo tee /src/client.crt >/dev/null
-        printf '%s\n' "${CASD_CLIENT_KEY:-}" | sudo tee /src/client.key >/dev/null
+        printf '%s\n' "${CASD_CLIENT_CERT:-}" > client.crt
+        printf '%s\n' "${CASD_CLIENT_KEY:-}" > client.key
 
-        sudo tee /src/buildstream-ci.conf >/dev/null <<'BSTCONF'
+        cat > buildstream-ci.conf <<'BSTCONF'
         scheduler:
           on-error: continue
           fetchers: 32
@@ -45,7 +45,7 @@ runs:
         logdir: /src/logs
         BSTCONF
 
-        sudo tee -a /src/buildstream-ci.conf >/dev/null <<'BSTCONFBUILD'
+        cat >> buildstream-ci.conf <<'BSTCONFBUILD'
         build:
           retry-failed: True
         BSTCONFBUILD
@@ -53,7 +53,7 @@ runs:
         if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
           PUSH_FLAG="true"
           [[ "${ENABLE_PUSH:-true}" == "false" ]] && PUSH_FLAG="false"
-          sudo tee -a /src/buildstream-ci.conf >/dev/null <<BSTCONFCACHE
+          cat >> buildstream-ci.conf <<BSTCONFCACHE
         artifacts:
           servers:
           - url: https://cache.projectbluefin.io:11002
@@ -110,19 +110,19 @@ runs:
         BSTCONFCACHE
         fi
 
-        sudo tee -a /src/buildstream-ci.conf >/dev/null <<'BSTCONFCACHEBLOCK'
+        cat >> buildstream-ci.conf <<'BSTCONFCACHEBLOCK'
 
         cache:
           cache-buildtrees: never
         BSTCONFCACHEBLOCK
 
-        cp /src/buildstream-ci.conf logs/buildstream-ci.conf
+        cp buildstream-ci.conf logs/buildstream-ci.conf
         echo "Remote execution enabled: no"
         echo "=== BuildStream CI config ==="
-        cat /src/buildstream-ci.conf
+        cat buildstream-ci.conf
 
         if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
-          sudo tee /src/buildstream-push.conf >/dev/null <<'BSTCONFPUSH'
+          cat > buildstream-push.conf <<'BSTCONFPUSH'
         scheduler:
           on-error: continue
           fetchers: 16
@@ -170,7 +170,7 @@ runs:
               request-timeout: 180
 
         BSTCONFPUSH
-          cp /src/buildstream-push.conf logs/buildstream-push.conf
+          cp buildstream-push.conf logs/buildstream-push.conf
           echo "=== BuildStream push config ==="
-          cat /src/buildstream-push.conf
+          cat buildstream-push.conf
         fi

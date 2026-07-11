@@ -116,11 +116,12 @@ jobs:
           CASD_CLIENT_KEY: ${{ secrets.CASD_CLIENT_KEY }}
         uses: ./.github/actions/generate-bst-ci-config
         with:
-          # Remote execution is disabled here so we pull cached artifacts from the CAS
-          # and avoid the remote execution queue and server capacity bottlenecks.
-          # We perform final image assembly locally on the GHA runner.
-          enable-remote-execution: "false"
-          enable-push: "false"
+          # Remote execution is enabled here specifically for elements in the bluefin project,
+          # so that expensive project-specific compiles (like bootc, sudo-rs) build on the
+          # remote execution worker on cache.projectbluefin.io:11002 while base platform elements
+          # are fetched locally using GHA.
+          enable-remote-execution: "true"
+          enable-push: "true"
 
       # Count the full element graph so the progress script can show %.
       # bst show only reads element YAML + fetches junction refs — no CAS

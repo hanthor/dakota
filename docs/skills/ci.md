@@ -28,6 +28,8 @@ For Dakota, that means:
 
 When the workflow uses a composite action to generate BuildStream config, write the config files into `${GITHUB_WORKSPACE}` (the checkout root) rather than the action directory. The `just bst` wrapper mounts the checkout at `/src` inside the bst2 container, so the files must be visible there as `/src/buildstream-ci.conf` and `/src/buildstream-push.conf`.
 
+For runner-based Dakota builds, the generated config must explicitly contain `build.max-jobs: 1`. If that cap is missing, the job can drift into a long, resource-heavy run that looks like a hung BuildStream step. Treat a missing `max-jobs: 1` in the generated config as a workflow bug and fail fast rather than letting the build start.
+
 ## When to Use
 
 Use this skill when the task mentions:

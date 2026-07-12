@@ -118,6 +118,11 @@ runs:
           cache-buildtrees: never
         BSTCONFCACHEBLOCK
 
+        if ! grep -Eq '^[[:space:]]*max-jobs:[[:space:]]*1[[:space:]]*$' "$WORKSPACE_ROOT/buildstream-ci.conf"; then
+          echo "::error::buildstream-ci.conf is missing build.max-jobs: 1; the runner-based Dakota build requires this cap."
+          exit 1
+        fi
+
         cp "$WORKSPACE_ROOT/buildstream-ci.conf" "$WORKSPACE_ROOT/logs/buildstream-ci.conf"
         echo "Remote execution enabled: no"
         echo "=== BuildStream CI config ==="

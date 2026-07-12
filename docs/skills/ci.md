@@ -337,7 +337,7 @@ The supported Dakota path is a single `just bst build ...` invocation on the Git
 
 The CI config generator must write `buildstream-ci.conf` and `buildstream-push.conf` to `/src/` so the workflow's `BST_FLAGS: --config /src/buildstream-ci.conf` path stays correct. Writing the files into the repository checkout instead of `/src/` breaks the runner-based build path even when the YAML itself is otherwise valid.
 
-If a `build.yml` run is still slow or still times out, inspect the first concrete bottleneck from the live logs and the generated config, then change the smallest thing that addresses that verified bottleneck. The current workflow does not rely on a `remote-execution:` block and should not be changed to add one unless a future investigation proves that the runner-only path is no longer sufficient.
+For runner-based CI, keep `scheduler.builders: 2` but cap each element build with `build.max-jobs: 1` in the generated config. That preserves the fast runner build model while avoiding memory pressure and hung build steps on the GitHub runner. The current workflow does not rely on a `remote-execution:` block and should not be changed to add one unless a future investigation proves that the runner-only path is no longer sufficient.
 
 ### Cache access and local execution are separate; do not toggle blindly (2026-07-11)
 

@@ -49,6 +49,7 @@ runs:
         cat >> "$WORKSPACE_ROOT/buildstream-ci.conf" <<'BSTCONFBUILD'
         build:
           retry-failed: True
+          max-jobs: 1
         BSTCONFBUILD
 
         if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
@@ -139,6 +140,7 @@ runs:
 
         build:
           retry-failed: True
+          max-jobs: 1
 
         cache:
           cache-buildtrees: never

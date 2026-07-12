@@ -26,6 +26,8 @@ For Dakota, that means:
 - no seed/warmup shards and no VM boot-check path in the default workflow
 - verification via `just lint` and the existing image export/publish path before `:testing` is moved
 
+When the workflow uses a composite action to generate BuildStream config, write the config files into `${GITHUB_WORKSPACE}` (the checkout root) rather than the action directory. The `just bst` wrapper mounts the checkout at `/src` inside the bst2 container, so the files must be visible there as `/src/buildstream-ci.conf` and `/src/buildstream-push.conf`.
+
 ## When to Use
 
 Use this skill when the task mentions:

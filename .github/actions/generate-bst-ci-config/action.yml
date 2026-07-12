@@ -20,17 +20,18 @@ runs:
         ENABLE_PUSH: ${{ inputs.enable-push }}
       run: |
         set -euo pipefail
-        mkdir -p logs
+        WORKSPACE_ROOT="${GITHUB_WORKSPACE:-$PWD}"
+        mkdir -p "$WORKSPACE_ROOT/logs"
 
         if [[ "${ENABLE_REMOTE_EXECUTION:-false}" == "true" ]]; then
           echo "::error::Dakota CI uses the GitHub runner for the BuildStream build; remote execution is intentionally disabled."
           exit 1
         fi
 
-        printf '%s\n' "${CASD_CLIENT_CERT:-}" > client.crt
-        printf '%s\n' "${CASD_CLIENT_KEY:-}" > client.key
+        printf '%s\n' "${CASD_CLIENT_CERT:-}" > "$WORKSPACE_ROOT/client.crt"
+        printf '%s\n' "${CASD_CLIENT_KEY:-}" > "$WORKSPACE_ROOT/client.key"
 
-        cat > buildstream-ci.conf <<'BSTCONF'
+        cat > "$WORKSPACE_ROOT/buildstream-ci.conf" <<'BSTCONF'
         scheduler:
           on-error: continue
           fetchers: 32
@@ -45,7 +46,7 @@ runs:
         logdir: /src/logs
         BSTCONF
 
-        cat >> buildstream-ci.conf <<'BSTCONFBUILD'
+        cat >> "$WORKSPACE_ROOT/buildstream-ci.conf" <<'BSTCONFBUILD'
         build:
           retry-failed: True
         BSTCONFBUILD
@@ -53,7 +54,7 @@ runs:
         if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
           PUSH_FLAG="true"
           [[ "${ENABLE_PUSH:-true}" == "false" ]] && PUSH_FLAG="false"
-          cat >> buildstream-ci.conf <<BSTCONFCACHE
+          cat >> "$WORKSPACE_ROOT/buildstream-ci.conf" <<BSTCONFCACHE
         artifacts:
           servers:
           - url: https://cache.projectbluefin.io:11002
@@ -110,19 +111,19 @@ runs:
         BSTCONFCACHE
         fi
 
-        cat >> buildstream-ci.conf <<'BSTCONFCACHEBLOCK'
+        cat >> "$WORKSPACE_ROOT/buildstream-ci.conf" <<'BSTCONFCACHEBLOCK'
 
         cache:
           cache-buildtrees: never
         BSTCONFCACHEBLOCK
 
-        cp buildstream-ci.conf logs/buildstream-ci.conf
+        cp "$WORKSPACE_ROOT/buildstream-ci.conf" "$WORKSPACE_ROOT/logs/buildstream-ci.conf"
         echo "Remote execution enabled: no"
         echo "=== BuildStream CI config ==="
-        cat buildstream-ci.conf
+        cat "$WORKSPACE_ROOT/buildstream-ci.conf"
 
         if [[ -n "${CASD_CLIENT_CERT:-}" ]] && [[ -n "${CASD_CLIENT_KEY:-}" ]]; then
-          cat > buildstream-push.conf <<'BSTCONFPUSH'
+          cat > "$WORKSPACE_ROOT/buildstream-push.conf" <<'BSTCONFPUSH'
         scheduler:
           on-error: continue
           fetchers: 16
@@ -170,7 +171,7 @@ runs:
               request-timeout: 180
 
         BSTCONFPUSH
-          cp buildstream-push.conf logs/buildstream-push.conf
+          cp "$WORKSPACE_ROOT/buildstream-push.conf" "$WORKSPACE_ROOT/logs/buildstream-push.conf"
           echo "=== BuildStream push config ==="
-          cat buildstream-push.conf
+          cat "$WORKSPACE_ROOT/buildstream-push.conf"
         fi

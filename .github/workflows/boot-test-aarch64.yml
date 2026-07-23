@@ -24,7 +24,8 @@ on:
       - "Build Bluefin dakota (aarch64)"
       - "Build dakota multirunner (aarch64)"
     types: [completed]
-    branches: [testing]
+    # multirunner-aarch64 is the fork-lab trunk (hanthor/dakota)
+    branches: [testing, multirunner-aarch64]
   workflow_dispatch:
     inputs:
       image:

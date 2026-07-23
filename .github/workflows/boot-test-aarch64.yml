@@ -231,7 +231,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            qemu-system-arm qemu-utils u-boot-qemu
+            qemu-system-arm qemu-utils u-boot-qemu ipxe-qemu
           ls -l /usr/lib/u-boot/qemu_arm64/u-boot.bin
           [ -e /dev/kvm ] && echo "KVM available" || echo "KVM absent — TCG fallback"
 

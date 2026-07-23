@@ -186,6 +186,13 @@ jobs:
             sh -c "tar -cf - -C /input --exclude 'cas/staging' --exclude 'cas/tmp' . | zstd -T0 > /output/cas-core.tar.zst"
           oras push "$CORE_REF" cas-core.tar.zst:application/vnd.buildstream.cas.tar.zst
 
+      - name: Collect per-element logs
+        if: always()
+        run: |
+          # bst's per-element logs hold the full build output; the
+          # orchestration log only keeps the error-lines tail.
+          cp -r "$HOME/.cache/buildstream/logs" logs/element-logs 2>/dev/null || true
+
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -312,6 +319,13 @@ jobs:
           [ "${{ steps.build.outcome }}" == "success" ] && \
             oras push "$CHUNK_REF" cas-${{ matrix.chunk }}.tar.zst:application/vnd.buildstream.cas.tar.zst || true
 
+      - name: Collect per-element logs
+        if: always()
+        run: |
+          # bst's per-element logs hold the full build output; the
+          # orchestration log only keeps the error-lines tail.
+          cp -r "$HOME/.cache/buildstream/logs" logs/element-logs 2>/dev/null || true
+
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -410,6 +424,13 @@ jobs:
 
       - name: Validate with bootc container lint
         run: just lint
+
+      - name: Collect per-element logs
+        if: always()
+        run: |
+          # bst's per-element logs hold the full build output; the
+          # orchestration log only keeps the error-lines tail.
+          cp -r "$HOME/.cache/buildstream/logs" logs/element-logs 2>/dev/null || true
 
       - name: Upload build logs
         if: always()

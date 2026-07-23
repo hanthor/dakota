@@ -4,6 +4,10 @@ depends:
   - bluefin/deps.bst
   - oci/os-release.bst
 
+  # Asahi fork-lab branch: boot-chain userspace rides in the base image
+  # while the flavor is a global kernel swap (see freedesktop-sdk.bst).
+  - bluefin-asahi/deps.bst
+
   - freedesktop-sdk.bst:components/linux-firmware.bst
   - gnome-build-meta.bst:gnomeos/initramfs/signed-modules.bst
   - gnome-build-meta.bst:oci/initramfs.bst

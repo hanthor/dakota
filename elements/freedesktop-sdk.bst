@@ -24,6 +24,11 @@ config:
         bootstrap_build_arch: "x86_64"
 
   overrides:
+    # Asahi fork-lab branch: every image gets the Apple Silicon kernel
+    # (AsahiLinux/linux, 16K pages). Upstreaming will scope this to an
+    # asahi flavor instead of a global swap.
+    components/linux.bst: bluefin-asahi/linux-asahi.bst
+
     components/at-spi2-core.bst: gnome-build-meta.bst:sdk/at-spi2-core.bst
     components/cairo.bst: gnome-build-meta.bst:sdk/cairo.bst
     components/fcitx5-gtk.bst: gnome-build-meta.bst:sdk/fcitx5-gtk.bst

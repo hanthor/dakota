@@ -65,6 +65,18 @@ config:
     . ./fdsdk-config.sh "%{arch}"
 
   - |
+    . ./config-utils.sh
+    # The Asahi tree carries Rust-for-Linux page-ownership changes (GPU
+    # driver prerequisites) the Rust binder driver has not been adapted
+    # to — it fails E0308 in page_range.rs. Asahi's own config never
+    # builds Rust binder; use the C binder for Waydroid instead.
+    remove ANDROID_BINDER_IPC_RUST
+    enable ANDROID_BINDER_IPC
+    enable ANDROID_BINDERFS
+    sed -i '/^ANDROID_BINDER_IPC_RUST$/d' expected-configs
+    grep -q ANDROID_BINDER_IPC expected-configs
+
+  - |
     make -j1 olddefconfig
 
   - |

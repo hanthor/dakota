@@ -1,0 +1,82 @@
+From: Claude Fable 5 <noreply@anthropic.com>
+Subject: [PATCH] generate-initramfs: add 50-asahi module for Apple Silicon
+
+Stage the Apple SoC early-boot stack in the initrd: internal NVMe
+(nvme-apple + its SART/DART/RTKit plumbing), early KMS (apple DCP),
+input (dockchannel/SPI HID keyboards), and the SMC bits shutdown and
+battery status need. The generic 50-kmod sweep already picks up
+drivers/nvme, drivers/gpu/drm, drivers/hid and drivers/pci/controller;
+this module covers the Apple-specific directories and named modules
+that live outside those trees.
+
+WiFi/BT vendor firmware extraction (ESP vendorfw/firmware.cpio ->
+/lib/firmware/vendor) is intentionally not handled here — it is not
+boot-critical and belongs to the asahi-scripts element in the real
+root.
+---
+ .../modules/50-asahi/module.sh                | 57 +++++++++++++++++++
+ 1 file changed, 57 insertions(+)
+ create mode 100644 files/gnomeos/generate-initramfs/modules/50-asahi/module.sh
+
+diff --git a/files/gnomeos/generate-initramfs/modules/50-asahi/module.sh b/files/gnomeos/generate-initramfs/modules/50-asahi/module.sh
+new file mode 100644
+--- /dev/null
++++ b/files/gnomeos/generate-initramfs/modules/50-asahi/module.sh
+@@ -0,0 +1,57 @@
++# Apple Silicon (Asahi) early-boot support.
++#
++# APPLE_MAILBOX / APPLE_RTKIT / APPLE_PMGR_* are builtin in the Asahi
++# kernel config; everything below is =m and must be present before the
++# initrd can find the internal NVMe or light up the panel.
++
++MODULE_DIRS=(
++    drivers/soc/apple
++    drivers/phy/apple
++    drivers/gpu/drm/apple
++    drivers/hid/dockchannel-hid
++    drivers/hid/spi-hid
++)
++
++MODULES_BY_NAME=(
++    apple-dart
++    apple-sart
++    apple-admac
++    apple-sio
++    apple-watchdog
++    macsmc
++    macsmc-rtkit
++    gpio-macsmc
++    power-reset-macsmc
++    rtc-macsmc
++    pinctrl-apple-gpio
++    i2c-apple
++    spi-apple
++    spmi-apple
++    clk-apple-nco
++    apple-soc-cpufreq
++    nvmem-apple-efuses
++    apple-rtkit-helper
++    nvme-apple
++)
++
++install() {
++    for mod in "${MODULE_DIRS[@]}"; do
++        if [ -d "/usr/lib/modules/${kernelver}/kernel/${mod}" ]; then
++            while IFS= read -r -d '' file; do
++                install_file "${file}"
++            done < <(find "/usr/lib/modules/${kernelver}/kernel/${mod}" -type f -print0)
++        fi
++    done
++
++    # Resolved via modinfo so we track module names, not source paths;
++    # names that do not exist in this kernel are skipped silently.
++    for name in "${MODULES_BY_NAME[@]}"; do
++        for path in $(modinfo -k "${kernelver}" -b /usr -n "${name}" 2>/dev/null); do
++            case "${path}" in
++                /*)
++                    install_file "${path}"
++                    ;;
++            esac
++        done
++    done
++}

@@ -193,7 +193,7 @@ jobs:
           exit 0
 
       - name: Upload boot artifacts
-        if: always()
+        if: always() && steps.boot.outputs.artifacts != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aarch64-boot-artifacts-${{ github.run_id }}
@@ -244,6 +244,17 @@ jobs:
           set -euo pipefail
           echo "$GH_TOKEN" | sudo podman login ghcr.io --username "$GH_ACTOR" --password-stdin
           sudo podman pull "${IMAGE}"
+
+      - name: Inspect image install prerequisites
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+        run: |
+          sudo podman run --rm "${IMAGE}" sh -c '
+            echo "== bootc install config =="; ls -la /usr/lib/bootc/install/ 2>&1; cat /usr/lib/bootc/install/*.toml 2>&1
+            echo "== bootupd =="; command -v bootupd || echo "bootupd MISSING"
+            echo "== mkfs =="; for f in mkfs.btrfs mkfs.xfs mkfs.ext4 mkfs.vfat; do command -v $f || echo "$f missing"; done
+            echo "== bootc version =="; bootc --version
+            echo "== sd-boot =="; ls /usr/lib/systemd/boot/efi/ 2>&1' || true
 
       - name: bootc install to-disk
         env:

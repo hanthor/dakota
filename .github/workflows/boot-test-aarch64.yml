@@ -205,9 +205,7 @@ jobs:
   boot-test-uboot-chain:
     name: Boot via U-Boot EFI chain (bootloader mimicry)
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 90
-    # Experimental fidelity tier — observational until proven stable.
-    continue-on-error: true
+    timeout-minutes: 120
     steps:
       - name: Resolve image ref
         id: image
@@ -253,18 +251,19 @@ jobs:
             -v /dev:/dev \
             "${IMAGE}" \
             bootc install to-disk --generic-image --skip-fetch-check \
+              --filesystem xfs \
               --via-loopback /output/disk.img
           sudo qemu-img info /var/lib/containers/bootc-test/disk.img
 
       - name: Boot installed disk under U-Boot EFI
         run: |
           set -uo pipefail
-          ACCEL=tcg; CPU=max
+          ACCEL=tcg; CPU=neoverse-n1
           if [ -e /dev/kvm ]; then ACCEL=kvm; CPU=host; fi
           # U-Boot autoboot: EFI bootmgr finds BOOTAA64.EFI / BLS entries on
           # the ESP; systemd-boot then boots the default entry. Success marker:
           # systemd reaching multi-user (or at minimum the kernel starting).
-          sudo timeout 1200 qemu-system-aarch64 \
+          sudo timeout 2400 qemu-system-aarch64 \
             -M virt -accel "$ACCEL" -cpu "$CPU" -smp 4 -m 6144 \
             -bios /usr/lib/u-boot/qemu_arm64/u-boot.bin \
             -drive file=/var/lib/containers/bootc-test/disk.img,format=raw,if=virtio \

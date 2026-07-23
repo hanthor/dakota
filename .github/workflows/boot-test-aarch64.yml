@@ -189,3 +189,101 @@ jobs:
           path: ${{ steps.boot.outputs.artifacts }}
           retention-days: 14
           if-no-files-found: ignore
+
+  # Mimics the Apple Silicon boot chain as closely as CI can get without a Mac:
+  # on Asahi hardware the OS sees U-Boot's EFI (not edk2) loading
+  # EFI/BOOT/BOOTAA64.EFI -> systemd-boot -> BLS entry, with a devicetree
+  # passed to the kernel. u-boot-qemu as -bios reproduces U-Boot's EFI
+  # implementation and its quirks (no persistent EFI variables, bootefi
+  # bootmgr path, DT-not-ACPI). The bcvk job above direct-kernel-boots and
+  # never exercises any of that; this job runs the REAL installed chain via
+  # bootc install to-disk. m1n1 itself is hardware-only (no Apple SoC
+  # emulation exists) — U-Boot is the deepest reachable layer.
+  boot-test-uboot-chain:
+    name: Boot via U-Boot EFI chain (bootloader mimicry)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    # Experimental fidelity tier — observational until proven stable.
+    continue-on-error: true
+    steps:
+      - name: Resolve image ref
+        id: image
+        env:
+          DISPATCH_IMAGE: ${{ inputs.image }}
+        run: |
+          if [ -n "${DISPATCH_IMAGE:-}" ]; then
+            echo "ref=${DISPATCH_IMAGE}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER}/dakota:aarch64" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install qemu + U-Boot firmware
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-arm qemu-utils u-boot-qemu
+          ls -l /usr/lib/u-boot/qemu_arm64/u-boot.bin
+          [ -e /dev/kvm ] && echo "KVM available" || echo "KVM absent — TCG fallback"
+
+      - name: Pull image
+        env:
+          GH_ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ steps.image.outputs.ref }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | sudo podman login ghcr.io --username "$GH_ACTOR" --password-stdin
+          sudo podman pull "${IMAGE}"
+
+      - name: bootc install to-disk
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /var/lib/containers/bootc-test
+          sudo truncate -s 15G /var/lib/containers/bootc-test/disk.img
+          sudo podman run --rm --privileged --pid=host \
+            --security-opt label=type:unconfined_t \
+            -v /var/lib/containers:/var/lib/containers \
+            -v /var/lib/containers/bootc-test:/output \
+            -v /dev:/dev \
+            "${IMAGE}" \
+            bootc install to-disk --generic-image --skip-fetch-check \
+              --via-loopback /output/disk.img
+          sudo qemu-img info /var/lib/containers/bootc-test/disk.img
+
+      - name: Boot installed disk under U-Boot EFI
+        run: |
+          set -uo pipefail
+          ACCEL=tcg; CPU=max
+          if [ -e /dev/kvm ]; then ACCEL=kvm; CPU=host; fi
+          # U-Boot autoboot: EFI bootmgr finds BOOTAA64.EFI / BLS entries on
+          # the ESP; systemd-boot then boots the default entry. Success marker:
+          # systemd reaching multi-user (or at minimum the kernel starting).
+          sudo timeout 1200 qemu-system-aarch64 \
+            -M virt -accel "$ACCEL" -cpu "$CPU" -smp 4 -m 6144 \
+            -bios /usr/lib/u-boot/qemu_arm64/u-boot.bin \
+            -drive file=/var/lib/containers/bootc-test/disk.img,format=raw,if=virtio \
+            -netdev user,id=n1 -device virtio-net-pci,netdev=n1 \
+            -nographic -serial mon:stdio \
+            2>&1 | tee serial-uboot.log | tail -c 2000000 || true
+          echo "=== verdict ==="
+          if grep -qE "multi-user\.target|Reached target.*Multi-User|login:" serial-uboot.log; then
+            echo "PASS: userspace reached over the U-Boot EFI chain"
+          elif grep -qE "Booting|EFI stub|Linux version" serial-uboot.log; then
+            echo "PARTIAL: kernel started via U-Boot EFI but userspace marker not seen"
+            exit 1
+          else
+            echo "FAIL: U-Boot EFI chain never started the kernel — see serial-uboot.log"
+            exit 1
+          fi
+
+      - name: Upload U-Boot chain serial log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aarch64-uboot-chain-serial-${{ github.run_id }}
+          path: serial-uboot.log
+          retention-days: 14
+          if-no-files-found: ignore

@@ -263,10 +263,24 @@ jobs:
           set -euo pipefail
           sudo mkdir -p /var/lib/containers/bootc-test
           sudo truncate -s 15G /var/lib/containers/bootc-test/disk.img
+          # The aarch64 image is missing /usr/lib/bootc/install/00-defaults.toml
+          # (present in the element graph via bluefin/bootc-install-config.bst,
+          # absent from the built image — real image defect, filed upstream).
+          # Inject an equivalent config so the install proceeds; btrfs because
+          # the image carries btrfs-progs but no xfsprogs.
+          cat > /tmp/50-boot-test.toml <<'EOT'
+          [install]
+          bootloader = "systemd"
+
+          [install.filesystem.root]
+          type = "btrfs"
+          EOT
+          sed -i 's/^          //' /tmp/50-boot-test.toml
           sudo podman run --rm --privileged --pid=host \
             --security-opt label=type:unconfined_t \
             -v /var/lib/containers:/var/lib/containers \
             -v /var/lib/containers/bootc-test:/output \
+            -v /tmp/50-boot-test.toml:/usr/lib/bootc/install/50-boot-test.toml:ro \
             -v /dev:/dev \
             "${IMAGE}" \
             bootc install to-disk --generic-image --skip-fetch-check \

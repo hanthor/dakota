@@ -20,7 +20,9 @@ on:
   # continue-on-error means the workflow_run conclusion reads success even when
   # the build failed, so we verify the image tag exists instead.
   workflow_run:
-    workflows: ["Build Bluefin dakota (aarch64)"]
+    workflows:
+      - "Build Bluefin dakota (aarch64)"
+      - "Build dakota multirunner (aarch64)"
     types: [completed]
     branches: [testing]
   workflow_dispatch:

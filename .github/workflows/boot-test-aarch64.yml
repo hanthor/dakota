@@ -284,7 +284,9 @@ jobs:
             -v /dev:/dev \
             "${IMAGE}" \
             bootc install to-disk --generic-image --skip-fetch-check \
-              --filesystem btrfs \
+              --filesystem btrfs --wipe \
+              --composefs-backend --bootloader systemd \
+              --karg systemd.firstboot=no \
               --via-loopback /output/disk.img
           sudo qemu-img info /var/lib/containers/bootc-test/disk.img
 

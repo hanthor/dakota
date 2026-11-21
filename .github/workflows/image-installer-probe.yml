@@ -1,0 +1,101 @@
+name: Image-based installer probe (spike)
+
+on:
+  push:
+    branches: [spike/image-installer-probe]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      IMAGE: ghcr.io/projectbluefin/dakota:testing
+      WORK: /mnt/probe
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Prepare host
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get update
+          sudo apt-get install -y podman skopeo qemu-system-x86 qemu-utils ovmf initramfs-tools-core cpio ffmpeg zstd
+          sudo mkdir -p /mnt/containers /var/lib/containers "$WORK"
+          sudo mount --bind /mnt/containers /var/lib/containers
+          sudo chown "$USER" "$WORK"
+          test -c /dev/kvm && sudo chmod a+rw /dev/kvm
+          df -h / /mnt
+      - name: Pull
+        run: |
+          sudo podman pull -q "$IMAGE"
+          sudo podman image inspect "$IMAGE" --format '{{.Digest}}' | tee "$WORK/digest.txt"
+      - name: Probe the image
+        run: sudo bash image-installer/probe.sh "$IMAGE" "$WORK/out"
+      - name: bootc install to-disk (composefs, systemd-boot, ext4)
+        run: |
+          set -euxo pipefail
+          truncate -s 30G "$WORK/disk.raw"
+          start=$(date +%s)
+          sudo podman run --rm --privileged --pid=host -v /dev:/dev -v /var/lib/containers:/var/lib/containers \
+            -v "$WORK:/data" --security-opt label=type:unconfined_t "$IMAGE" \
+            bootc install to-disk --via-loopback /data/disk.raw --filesystem ext4 --wipe \
+              --composefs-backend --bootloader systemd --generic-image \
+              --target-imgref ghcr.io/projectbluefin/dakota:testing \
+              --karg systemd.firstboot=no --karg splash --karg quiet 2>&1 | tail -80
+          echo "to-disk took $(( $(date +%s) - start ))s" | tee "$WORK/out/to-disk-time.txt"
+      - name: Inspect the disk
+        run: |
+          set -x
+          out="$WORK/out/disk"; mkdir -p "$out"
+          loop=$(sudo losetup --find --show --partscan "$WORK/disk.raw")
+          sudo udevadm settle
+          sudo sfdisk --dump "$loop" | tee "$out/partitions.txt"
+          sudo blkid "$loop"p* | tee "$out/blkid.txt"
+          sudo dumpe2fs -h "${loop}p2" 2>/dev/null | grep -iE "features|volume name|uuid|block size" | tee "$out/ext4.txt"
+          sudo mkdir -p /m/esp /m/root
+          sudo mount "${loop}p1" /m/esp
+          sudo mount "${loop}p2" /m/root
+          sudo find /m/esp -printf '%s %p\n' | tee "$out/esp-files.txt"
+          for f in /m/esp/loader/loader.conf /m/esp/loader/entries/*.conf; do echo "== $f"; sudo cat "$f"; done | tee "$out/entries.txt"
+          sudo ls -la /m/root /m/root/state /m/root/state/* /m/root/composefs 2>&1 | tee "$out/root-ls.txt"
+          sudo find /m/root/state -maxdepth 4 | head -100 | tee -a "$out/root-ls.txt"
+          for d in /m/root/state/deploy/*/; do sudo cat "$d/etc/fstab" "$d"/*.origin "${d%/}.origin" 2>&1; sudo ls -la "$d"; done | tee "$out/deploy.txt"
+          sudo find /m/root/state -name '*.origin' -exec cat {} \; | tee -a "$out/deploy.txt"
+          sudo du -sh /m/root/* /m/esp | tee "$out/du.txt"
+          df -B1 /m/root /m/esp | tee -a "$out/du.txt"
+          sudo umount /m/esp /m/root
+          sudo losetup -d "$loop"
+          du -h --apparent-size "$WORK/disk.raw"; du -h "$WORK/disk.raw"
+      - name: Boot the installed disk (plain, writable copy)
+        run: |
+          set -x
+          sudo chown "$USER" "$WORK/disk.raw"
+          qemu-img create -q -f qcow2 -F raw -b "$WORK/disk.raw" "$WORK/boot.qcow2"
+          cp /usr/share/OVMF/OVMF_VARS_4M.fd "$WORK/vars.fd"
+          mkdir -p "$WORK/out/shots"
+          qemu-system-x86_64 -machine q35 -m 6144 -smp 4 -accel kvm -cpu host \
+            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+            -drive if=pflash,format=raw,file="$WORK/vars.fd" \
+            -drive file="$WORK/boot.qcow2",format=qcow2,if=virtio \
+            -vga none -device VGA,xres=1920,yres=1080 -display none \
+            -serial file:"$WORK/out/serial.log" -monitor unix:"$WORK/mon.sock",server,nowait &
+          for t in 5 15 30 60 90 120 180 240; do
+            while (( SECONDS < t + 10 )); do sleep 1; done
+            echo "screendump $WORK/out/shots/t$t.ppm" | timeout 5 python3 -c "
+          import socket,sys,time
+          s=socket.socket(socket.AF_UNIX); s.connect('$WORK/mon.sock'); time.sleep(0.3); s.recv(4096)
+          s.send((sys.stdin.read().strip()+'\n').encode()); time.sleep(1.5)" || true
+          done
+          kill %1 || true
+          for f in "$WORK"/out/shots/*.ppm; do ffmpeg -loglevel error -y -i "$f" "${f%.ppm}.png" && rm -f "$f"; done
+          tail -100 "$WORK/out/serial.log"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: probe
+          path: /mnt/probe/out/
